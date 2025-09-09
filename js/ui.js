@@ -259,6 +259,7 @@ function buildKanban() {
     });
   });
   container.querySelectorAll('button[data-add]').forEach(btn => btn.addEventListener('click', () => quickAddCard(btn.dataset.add)));
+  buildBoardSummary(groups, wipLimits);
 }
 
 function makeCard(o) {
@@ -330,6 +331,16 @@ document.addEventListener('DOMContentLoaded', () => {
     quickAddCard(status);
   });
 });
+
+function buildBoardSummary(groups, limits){
+  const box = document.getElementById('boardSummary'); if(!box) return;
+  const total = Object.values(groups).reduce((a,b)=>a+b.length,0) || 1;
+  box.innerHTML = Object.entries(groups).map(([k, items]) => {
+    const limit = limits[k]||0; const pct = ((items.length/total)*100)|0;
+    const pctLimit = limit? Math.min(100, (items.length/limit)*100)|0 : 0;
+    return `<div class="metric"><strong>${k}</strong><span>${items.length}${limit?'/'+limit:''}</span><div class="bar"><span style="width:${limit?pctLimit:pct}%;background:${limit && items.length>limit?'linear-gradient(90deg,#ff5576,#ff889d)':'linear-gradient(90deg,var(--accent),#7fb3ff)'}"></span></div></div>`;
+  }).join('');
+}
 
 function groupBy(arr, fn) {
   return arr.reduce((acc, x) => { const k = fn(x); (acc[k] ||= []).push(x); return acc; }, {});
