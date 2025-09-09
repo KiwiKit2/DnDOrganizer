@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Organizer Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">Organizer</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-view="table">Table</button>
+        <button class="nav-btn" data-view="board">Board</button>
+        <button class="nav-btn" data-view="stats">Stats</button>
+        <button class="nav-btn" data-view="about">About</button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="refreshBtn" class="accent-btn" title="Reload data">↻ Refresh</button>
+        <label class="toggle tiny">
+          <input type="checkbox" id="autoRefreshToggle" checked>
+          <span>Auto</span>
+        </label>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumbs" id="statusLine">Loading…</div>
+        <div class="spacer"></div>
+        <input type="search" id="search" placeholder="Search…" autocomplete="off" />
+        <button id="themeSwitch" title="Toggle theme">🌙</button>
+      </header>
+
+      <section id="view-table" class="view active">
+        <div class="toolbar">
+          <div class="left-tools">
+            <select id="columnFilter"></select>
+            <select id="valueFilter"></select>
+          </div>
+          <div class="right-tools">
+            <button id="exportJson" class="mini-btn">Export JSON</button>
+            <button id="exportCsv" class="mini-btn">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="dataTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-board" class="view">
+        <div id="kanban" class="kanban"></div>
+      </section>
+
+      <section id="view-stats" class="view">
+        <canvas id="statsChart" height="180"></canvas>
+        <div id="statsSummary" class="stats-summary"></div>
+      </section>
+
+      <section id="view-about" class="view prose">
+        <h1>About</h1>
+        <p>This dashboard pulls live data from a Google Sheet you control. Edit the sheet, refresh here, done.</p>
+        <ol>
+          <li>Open your sheet in Google Sheets.</li>
+          <li>File → Share → Publish to web → Select the tab → CSV → Publish.</li>
+          <li>Copy the generated URL and paste it into <code>config.js</code> (GOOGLE_SHEET_CSV_URL).</li>
+          <li>Reload this page.</li>
+        </ol>
+        <p>Use search, filters, board view, and quick export. Data never leaves your browser.</p>
+      </section>
+
+      <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
+    </main>
+  </div>
+  <script src="js/config.js"></script>
+  <script>if(location.protocol==='file:'){console.warn('Running via file:// may block modules. Start a local server for full functionality.');}</script>
+  <script type="module" src="js/ui.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="js/stats.js"></script>
+</body>
+</html>

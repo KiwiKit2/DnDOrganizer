@@ -1,0 +1,16 @@
+{
+  "name": "organizer-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Lightweight organizer pulling data from a published Google Sheet CSV.",
+  "scripts": {
+    "start": "npx http-server -p 5173 -c-1 .",
+    "serve": "npx http-server -p 5173 -c-1 .",
+    "preview": "npx http-server -p 5173 -c-1 .",
+    "deploy": "gh-pages -d ."
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "gh-pages": "^6.1.1"
+  }
+}
