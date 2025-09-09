@@ -120,11 +120,18 @@
           <button id="addTokensBtn" class="mini-btn">Add Filtered as Tokens</button>
           <label>Grid <input type="number" id="gridSizeInput" value="50" min="20" max="120" step="5" style="width:70px" /></label>
           <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
+          <button id="addSingleTokenBtn" class="mini-btn">Add Token</button>
+          <label>Snap <input type="checkbox" id="snapToggle" checked /></label>
+          <div class="fog-group">
+            <button id="fogFullBtn" class="mini-btn">Fog Full</button>
+            <button id="fogRevealBtn" class="mini-btn">Reveal</button>
+            <button id="fogClearBtn" class="mini-btn">Clear Fog</button>
+          </div>
         </div>
         <div id="mapStage" class="map-stage">
           <canvas id="battleMap" width="1200" height="800"></canvas>
           <div class="token-layer" id="tokenLayer"></div>
-          <div class="fog-layer" id="fogLayer"></div>
+          <canvas class="fog-layer" id="fogCanvas" width="1200" height="800"></canvas>
           <div class="walls-layer" id="wallsLayer"></div>
         </div>
         <p class="map-hint">Drag tokens. This is an early prototype: upcoming — fog reveal brush, vision cones, wall bounces.</p>

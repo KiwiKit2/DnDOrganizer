@@ -126,7 +126,10 @@ select:focus {outline:2px solid var(--accent);}
 .token {position:absolute;transform:translate(-50%,-50%);width:60px;height:60px;border:2px solid var(--accent);border-radius:50%;background:#222 center/cover no-repeat;box-shadow:0 4px 12px -4px rgba(0,0,0,.6);} 
 .token[data-type="enemy"] {border-color:#ff5576;}
 .token[data-type="player"] {border-color:#4f8dff;}
+.token.selected {outline:3px solid #fff;}
 .map-hint {font-size:12px;color:var(--text-dim);margin-top:10px;}
+.fog-layer{pointer-events:none;mix-blend-mode:normal;}
+.fog-group{display:flex;gap:6px;}
 
 /* Compendium */
 .comp-toolbar {display:flex;gap:18px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}

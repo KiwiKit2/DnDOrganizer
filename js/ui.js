@@ -402,11 +402,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('addTokensBtn');
   const clearBtn = document.getElementById('clearTokensBtn');
   if (addBtn) addBtn.addEventListener('click', addTokensFromFiltered);
-  if (clearBtn) clearBtn.addEventListener('click', () => { document.getElementById('tokenLayer').innerHTML=''; });
+  if (clearBtn) clearBtn.addEventListener('click', () => { document.getElementById('tokenLayer').innerHTML=''; saveTokens(); });
   const gridInput = document.getElementById('gridSizeInput');
   if (gridInput) gridInput.addEventListener('change', refreshMap);
   const layer = document.getElementById('tokenLayer');
-  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) dragToken(e); });
+  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) { selectToken(e.target); dragToken(e); } });
+  document.getElementById('addSingleTokenBtn')?.addEventListener('click', ()=> newAdHocToken());
+  setupFog();
+  loadTokens();
 });
 
 function addTokensFromFiltered() {
@@ -466,6 +469,43 @@ function testImage(src, cb) {
   img.src = src;
   setTimeout(()=> finish(false), 6000);
 }
+
+// Token & Fog enhancements
+function selectToken(t){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); t.classList.add('selected'); }
+function newAdHocToken(){
+  const layer = document.getElementById('tokenLayer'); if(!layer) return;
+  const name = prompt('Token label (optional):','');
+  const div = document.createElement('div');
+  div.className='token';
+  div.style.left='100px'; div.style.top='100px';
+  div.title = name || 'token';
+  layer.appendChild(div); saveTokens();
+}
+function saveTokens(){
+  const layer = document.getElementById('tokenLayer'); if(!layer) return;
+  const tokens=[...layer.querySelectorAll('.token')].map(t=>({x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',bg:t.style.backgroundImage||''}));
+  try { localStorage.setItem('mapTokens', JSON.stringify(tokens)); } catch{}
+}
+function loadTokens(){
+  try { const raw = localStorage.getItem('mapTokens'); if(!raw) return; const arr=JSON.parse(raw); const layer=document.getElementById('tokenLayer'); if(!layer) return; layer.innerHTML=''; arr.forEach(o=> { const d=document.createElement('div'); d.className='token'; d.style.left=o.x+'px'; d.style.top=o.y+'px'; d.title=o.title; if(o.type) d.dataset.type=o.type; if(o.bg) d.style.backgroundImage=o.bg; layer.appendChild(d); }); } catch {}
+}
+
+let fogCtx, fogMode='none';
+function setupFog(){
+  const canvas = document.getElementById('fogCanvas'); if(!canvas) return;
+  fogCtx = canvas.getContext('2d');
+  document.getElementById('fogFullBtn')?.addEventListener('click', ()=> { coverFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogClearBtn')?.addEventListener('click', ()=> { clearFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogRevealBtn')?.addEventListener('click', ()=> { fogMode='reveal'; });
+  coverFog(); loadFog();
+  canvas.addEventListener('mousedown', e=> { if(fogMode==='reveal'){ revealAt(e.offsetX,e.offsetY); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
+}
+function coverFog(){ if(!fogCtx) return; fogCtx.globalCompositeOperation='source-over'; fogCtx.fillStyle='rgba(0,0,0,0.85)'; fogCtx.fillRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
+function clearFog(){ if(!fogCtx) return; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
+function revealAt(x,y){ if(!fogCtx) return; const r=90; fogCtx.globalCompositeOperation='destination-out'; fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); }
+function saveFog(){ if(!fogCtx) return; try { localStorage.setItem('fogData', fogCtx.canvas.toDataURL()); } catch {} }
+function loadFog(){ try { const d=localStorage.getItem('fogData'); if(!d||!fogCtx) return; const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); }; img.src=d; } catch {} }
+
 
 function wireUpload() {
   els.uploadBtn.addEventListener('click', ()=> els.fileInput.click());
