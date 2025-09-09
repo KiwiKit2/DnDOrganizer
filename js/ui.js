@@ -231,16 +231,34 @@ function buildKanban() {
   if (!state.headers.length) { document.getElementById('kanbanEmpty').classList.remove('hidden'); return; }
   if (!state.headers.includes(groupCol)) { container.textContent = 'Group column '+groupCol+' missing.'; return; }
   const groups = groupBy(state.filtered, o => o[groupCol] || '—');
+  const wipLimits = loadWipLimits();
   Object.entries(groups).forEach(([k, items]) => {
     const col = document.createElement('div');
     col.className = 'kanban-column';
-    col.innerHTML = `<header>${k} <span>${items.length}</span></header><div class="kanban-cards"></div>`;
+    const limit = wipLimits[k]||0; const over = limit && items.length>limit;
+    col.innerHTML = `<header data-status="${k}"><div class="col-head-left"><strong class="col-title" title="Double‑click to rename / set WIP">${k}</strong> <span class="count">${items.length}${limit?'/'+limit:''}</span></div><button class="mini-btn add-mini" data-add="${k}" title="Add card to ${k}">＋</button></header><div class="kanban-cards"></div>`;
+    if (over) col.classList.add('over-wip');
     const wrap = col.querySelector('.kanban-cards');
     items.forEach(o => wrap.appendChild(makeCard(o)));
     container.appendChild(col);
   });
   enableDrag();
   document.getElementById('kanbanEmpty').classList.toggle('hidden', container.children.length>0);
+  // column header interactions
+  container.querySelectorAll('header .col-title').forEach(h => {
+    h.addEventListener('dblclick', () => {
+      const current = h.textContent.trim();
+      const newName = prompt('Rename column or keep same:', current) || current;
+      if (newName !== current) {
+        const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
+        state.objects.forEach(o=> { if ((o[groupCol]||'—')===current) o[groupCol] = newName; });
+      }
+      const w = prompt('Set WIP limit (0=none):', (loadWipLimits()[newName]||0));
+      if (w!==null) { const lims = loadWipLimits(); lims[newName]= Math.max(0, parseInt(w)||0); saveWipLimits(lims); }
+      applyFilters(); buildKanban(); Persist.saveCache(state);
+    });
+  });
+  container.querySelectorAll('button[data-add]').forEach(btn => btn.addEventListener('click', () => quickAddCard(btn.dataset.add)));
 }
 
 function makeCard(o) {
@@ -259,6 +277,7 @@ function makeCard(o) {
   card.appendChild(meta);
   card.draggable = true;
   card.dataset.index = state.objects.indexOf(o);
+  card.addEventListener('click', () => openEditor(o));
   return card;
 }
 
@@ -274,14 +293,43 @@ function enableDrag() {
       if (!dragged) return;
       col.appendChild(dragged);
       const idx = +dragged.dataset.index;
-      const status = col.parentElement.querySelector('header').childNodes[0].textContent.trim();
+      const status = col.parentElement.querySelector('header').dataset.status;
   const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
   state.objects[idx][groupCol] = status;
   state.dirty = true;
   markDirty();
+  Persist.saveCache(state);
+  buildKanban();
     });
   });
 }
+
+// Quick add & WIP helpers
+function quickAddCard(status){
+  const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
+  if (!state.headers.includes(groupCol)) return alert('Group column missing');
+  const titleKey = state.headers.find(h=> /title|name|task|item/i.test(h)) || state.headers[0];
+  const title = prompt('Card title:');
+  if (!title) return;
+  const row = Object.fromEntries(state.headers.map(h=>[h,'']));
+  row[titleKey] = title;
+  row[groupCol] = status;
+  state.objects.push(row);
+  applyFilters(); buildKanban(); Persist.saveCache(state); markDirty();
+}
+function loadWipLimits(){ try { return JSON.parse(localStorage.getItem('wipLimits')||'{}'); } catch { return {}; } }
+function saveWipLimits(o){ try { localStorage.setItem('wipLimits', JSON.stringify(o)); } catch{} }
+
+// Wire New Card toolbar button
+document.addEventListener('DOMContentLoaded', () => {
+  const addCardBtn = document.getElementById('addCardBtn');
+  if (addCardBtn) addCardBtn.addEventListener('click', () => {
+    const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
+    const status = prompt('Status / Column value:');
+    if (!status) return;
+    quickAddCard(status);
+  });
+});
 
 function groupBy(arr, fn) {
   return arr.reduce((acc, x) => { const k = fn(x); (acc[k] ||= []).push(x); return acc; }, {});
