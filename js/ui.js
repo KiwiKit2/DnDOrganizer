@@ -71,6 +71,8 @@ function cacheEls() {
   els.statusLine = document.querySelector('#statusLine');
   els.autoToggle = document.querySelector('#autoRefreshToggle');
   els.sheetBtn = document.getElementById('sheetConfigBtn');
+  els.uploadBtn = document.getElementById('uploadBtn');
+  els.fileInput = document.getElementById('fileInput');
 }
 
 function wireNav() {
@@ -99,6 +101,7 @@ function wireEvents() {
   document.getElementById('exportJson').addEventListener('click', ()=> Sheet.exportJson(state.filtered));
   document.getElementById('exportCsv').addEventListener('click', ()=> Sheet.exportCsv(state.headers, state.filtered));
   wireSheetModal();
+  wireUpload();
 }
 
 async function reload() {
@@ -287,6 +290,46 @@ function wireSheetModal() {
   });
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   window.addEventListener('keydown', e=> { if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
+}
+
+function wireUpload() {
+  els.uploadBtn.addEventListener('click', ()=> els.fileInput.click());
+  els.fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      els.statusLine.textContent = 'Reading '+file.name+'…';
+      let objects = [];
+      if (file.name.match(/\.xlsx?$|\.xls$/i)) {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type:'array' });
+        const first = wb.SheetNames[0];
+        const sheet = wb.Sheets[first];
+        objects = XLSX.utils.sheet_to_json(sheet, { defval:'' });
+      } else { // csv
+        const text = await file.text();
+        const rows = text.split(/\r?\n/).filter(l=>l.trim()).map(l=> l.split(',').map(s=> s.replace(/^"|"$/g,'')) );
+        const headers = rows.shift();
+        objects = rows.map(r=> Object.fromEntries(headers.map((h,i)=>[h,r[i]||''])));
+      }
+      if (!objects.length) throw new Error('No rows');
+      state.headers = Object.keys(objects[0]);
+      state.objects = objects;
+      state.numericCols = state.headers.filter(h=> objects.some(o=> /^\d+(\.\d+)?$/.test((o[h]||'').toString().trim())));
+      state.lastLoad = new Date();
+      buildTable();
+      buildColumnFilter();
+      applyFilters();
+      buildKanban();
+      Persist.saveCache(state);
+      els.statusLine.textContent = 'Loaded local file '+file.name+' ('+state.objects.length+' rows)';
+    } catch(err){
+      console.error(err);
+      els.statusLine.textContent = 'Upload failed: '+err.message;
+    } finally {
+      e.target.value='';
+    }
+  });
 }
 
 init();

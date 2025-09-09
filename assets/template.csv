@@ -1,0 +1,4 @@
+Name,Type,Status,HP,Initiative,Notes,Image
+Goblin,Enemy,Backlog,7,14,Skittish ambusher,https://example.com/goblin.png
+Longsword,Item,Done,,,-,https://example.com/longsword.png
+Aria,Player,In Progress,24,11,Half-elf bard,https://example.com/aria.png
