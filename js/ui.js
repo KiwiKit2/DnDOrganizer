@@ -290,6 +290,8 @@ function wireSheetModal() {
   });
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   window.addEventListener('keydown', e=> { if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
+  const modalUploadBtn = document.getElementById('modalUploadBtn');
+  if (modalUploadBtn) modalUploadBtn.addEventListener('click', ()=> els.fileInput.click());
 }
 
 function wireUpload() {
