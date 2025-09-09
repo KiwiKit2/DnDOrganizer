@@ -130,7 +130,7 @@ input#compSearch {background:var(--bg-raised);border:1px solid var(--border);col
 .modal.hidden {display:none;}
 .modal-panel {width:100%;max-width:640px;background:var(--bg-alt);border:1px solid var(--border);border-radius:18px;padding:26px 30px 34px;display:flex;flex-direction:column;gap:18px;box-shadow:0 10px 32px -8px rgba(0,0,0,.7);} 
 .modal-panel.edit-panel {max-width:520px;}
-.drop-overlay {position:fixed;inset:0;background:rgba(79,141,255,.15);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:600;letter-spacing:1px;color:var(--accent);z-index:400;}
+.drop-overlay {position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;letter-spacing:.5px;color:var(--text);z-index:400;font-family:inherit;text-align:center;padding:40px;}
 .drop-overlay.hidden {display:none;}
 form#editForm {display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));}
 form#editForm label {display:flex;flex-direction:column;font-size:11px;gap:4px;font-weight:600;color:var(--text-dim);}

@@ -446,6 +446,7 @@ function wireDragDrop() {
   if (!overlay) return;
   ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e=> { e.preventDefault(); overlay.classList.remove('hidden'); }));
   ['dragleave','drop'].forEach(ev => document.addEventListener(ev, e=> { if (e.type==='drop' || e.target===document) overlay.classList.add('hidden'); }));
+  overlay.addEventListener('click', ()=> overlay.classList.add('hidden'));
   document.addEventListener('drop', e => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
@@ -457,10 +458,10 @@ function wireSample() {
   if (!els.sampleBtn) return;
   els.sampleBtn.addEventListener('click', ()=> {
     const sample = [
-      { Name:'Aria', Type:'Player', Status:'Active', HP:24, Notes:'Half-elf bard', Image:'https://placekitten.com/200/200' },
-      { Name:'Borin', Type:'Player', Status:'Active', HP:31, Notes:'Dwarf fighter', Image:'https://placekitten.com/210/210' },
-      { Name:'Goblin', Type:'Enemy', Status:'Spotted', HP:7, Notes:'Ambusher', Image:'https://placekitten.com/190/190' },
-      { Name:'Potion of Healing', Type:'Item', Status:'Inventory', Notes:'2d4+2 restore', Image:'https://placekitten.com/205/205' }
+  { Name:'Aria', Type:'Player', Status:'Active', HP:24, Notes:'Half-elf bard', Image:'' },
+  { Name:'Borin', Type:'Player', Status:'Active', HP:31, Notes:'Dwarf fighter', Image:'' },
+  { Name:'Goblin', Type:'Enemy', Status:'Spotted', HP:7, Notes:'Ambusher', Image:'' },
+  { Name:'Potion of Healing', Type:'Item', Status:'Inventory', Notes:'2d4+2 restore', Image:'' }
     ];
     state.headers = Object.keys(sample[0]);
     state.objects = sample;

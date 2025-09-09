@@ -39,10 +39,14 @@
       const card = document.createElement('div');
       card.className = 'grid-token';
       const img = document.createElement('img');
-      if (imgField && o[imgField]) {
-        img.src = o[imgField];
-        img.onerror = () => { img.src = PLACEHOLDER_IMG; img.style.opacity = .65; };
-      } else { img.src = PLACEHOLDER_IMG; img.style.opacity = .4; }
+      const original = imgField && o[imgField] ? o[imgField] : '';
+      if (!original) { img.src = PLACEHOLDER_IMG; img.style.opacity = .4; }
+      else {
+        // optimistic set then swap to placeholder if blocked
+        img.src = original;
+        let watchdog = setTimeout(()=> { img.src = PLACEHOLDER_IMG; img.style.opacity=.55; }, 4500);
+        img.onerror = () => { clearTimeout(watchdog); img.src = PLACEHOLDER_IMG; img.style.opacity=.6; };
+      }
       const h5 = document.createElement('h5');
       h5.textContent = o[nameField] || '(unnamed)';
       const tags = document.createElement('div');
