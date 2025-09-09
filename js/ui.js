@@ -36,8 +36,28 @@ async function init() {
     applyFilters();
     document.querySelector('#statusLine').textContent = 'Loaded cached data';
   }
-  await reload();
+  if (sheetConfigured()) {
+    await reload();
+  } else {
+    promptForSheet();
+  }
   autoLoop();
+}
+
+function sheetConfigured() {
+  try {
+    const u = window.getSheetUrl();
+    return /^https?:\/\//i.test(u) && !u.includes('PUT_PUBLISHED');
+  } catch { return false; }
+}
+
+function promptForSheet() {
+  els.statusLine.textContent = 'Configure sheet to start';
+  if (document.getElementById('sheetModal').classList.contains('hidden')) {
+    document.getElementById('sheetConfigBtn').classList.add('pulse');
+    document.getElementById('sheetConfigBtn').click();
+    setTimeout(()=> document.getElementById('sheetConfigBtn').classList.remove('pulse'), 4000);
+  }
 }
 
 function cacheEls() {
@@ -259,7 +279,7 @@ function wireSheetModal() {
     if (!val) return;
     localStorage.setItem('sheetUrl', val);
     close();
-    reload();
+  reload();
   });
   document.getElementById('clearSheetUrl').addEventListener('click', () => {
     localStorage.removeItem('sheetUrl');

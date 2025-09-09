@@ -52,6 +52,8 @@ body {display:flex;}
 #search:focus {outline:2px solid var(--accent);}
 #themeSwitch {background:var(--bg-raised);color:var(--text);border:1px solid var(--border);border-radius:50%;width:38px;height:38px;cursor:pointer;font-size:16px;display:grid;place-items:center;}
 #themeSwitch:hover {border-color:var(--accent);}
+.pulse {animation:pulse 1s ease-in-out 0s 4 alternate;}
+@keyframes pulse {from {box-shadow:0 0 0 0 var(--accent);} to {box-shadow:0 0 0 6px rgba(79,141,255,0);} }
 
 .view {display:none;padding:18px 22px;animation:fade .4s ease;}
 .view.active {display:block;}
