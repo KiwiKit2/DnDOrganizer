@@ -73,6 +73,8 @@ function cacheEls() {
   els.sheetBtn = document.getElementById('sheetConfigBtn');
   els.uploadBtn = document.getElementById('uploadBtn');
   els.fileInput = document.getElementById('fileInput');
+  els.groupSelect = document.getElementById('groupSelect');
+  els.sampleBtn = document.getElementById('sampleDataBtn');
 }
 
 function wireNav() {
@@ -103,6 +105,10 @@ function wireEvents() {
   document.getElementById('exportCsv').addEventListener('click', ()=> Sheet.exportCsv(state.headers, state.filtered));
   wireSheetModal();
   wireUpload();
+  wireDragDrop();
+  wireSample();
+  wireEditing();
+  wireCompendiumSearch();
 }
 
 async function reload() {
@@ -139,6 +145,18 @@ function buildTable() {
   });
   els.tableHead.appendChild(tr);
   renderRows();
+  // click row to edit
+  els.tableBody.addEventListener('click', onRowClickOnce, { once: true });
+}
+
+function onRowClickOnce() {
+  els.tableBody.addEventListener('click', e => {
+    const tr = e.target.closest('tr');
+    if (!tr) return;
+    const idx = [...els.tableBody.children].indexOf(tr);
+    const rowObj = state.filtered[idx];
+    if (rowObj) openEditor(rowObj);
+  });
 }
 
 function renderRows() {
@@ -173,6 +191,10 @@ function sortBy(col) {
 function buildColumnFilter() {
   els.columnFilter.innerHTML = '<option value="">Column…</option>' + state.headers.map(h=>`<option>${h}</option>`).join('');
   buildValueFilter();
+  if (els.groupSelect) {
+    els.groupSelect.innerHTML = state.headers.map(h=>`<option value="${h}" ${h===KANBAN_GROUP_COLUMN?'selected':''}>${h}</option>`).join('');
+    els.groupSelect.addEventListener('change', buildKanban);
+  }
 }
 
 function buildValueFilter() {
@@ -202,8 +224,10 @@ function applyFilters() {
 function buildKanban() {
   const container = document.getElementById('kanban');
   container.innerHTML = '';
-  if (!state.headers.includes(KANBAN_GROUP_COLUMN)) { container.textContent = 'Column '+KANBAN_GROUP_COLUMN+' missing.'; return; }
-  const groups = groupBy(state.filtered, o => o[KANBAN_GROUP_COLUMN] || '—');
+  const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
+  if (!state.headers.length) { document.getElementById('kanbanEmpty').classList.remove('hidden'); return; }
+  if (!state.headers.includes(groupCol)) { container.textContent = 'Group column '+groupCol+' missing.'; return; }
+  const groups = groupBy(state.filtered, o => o[groupCol] || '—');
   Object.entries(groups).forEach(([k, items]) => {
     const col = document.createElement('div');
     col.className = 'kanban-column';
@@ -213,6 +237,7 @@ function buildKanban() {
     container.appendChild(col);
   });
   enableDrag();
+  document.getElementById('kanbanEmpty').classList.toggle('hidden', container.children.length>0);
 }
 
 function makeCard(o) {
@@ -247,7 +272,8 @@ function enableDrag() {
       col.appendChild(dragged);
       const idx = +dragged.dataset.index;
       const status = col.parentElement.querySelector('header').childNodes[0].textContent.trim();
-  state.objects[idx][KANBAN_GROUP_COLUMN] = status;
+  const groupCol = els.groupSelect?.value || KANBAN_GROUP_COLUMN;
+  state.objects[idx][groupCol] = status;
   state.dirty = true;
   markDirty();
     });
@@ -398,6 +424,73 @@ function wireUpload() {
       e.target.value='';
     }
   });
+}
+
+function wireDragDrop() {
+  const overlay = document.getElementById('dropOverlay');
+  if (!overlay) return;
+  ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e=> { e.preventDefault(); overlay.classList.remove('hidden'); }));
+  ['dragleave','drop'].forEach(ev => document.addEventListener(ev, e=> { if (e.type==='drop' || e.target===document) overlay.classList.add('hidden'); }));
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f) { els.fileInput.files = e.dataTransfer.files; els.fileInput.dispatchEvent(new Event('change')); }
+  });
+}
+
+function wireSample() {
+  if (!els.sampleBtn) return;
+  els.sampleBtn.addEventListener('click', ()=> {
+    const sample = [
+      { Name:'Aria', Type:'Player', Status:'Active', HP:24, Notes:'Half-elf bard', Image:'https://placekitten.com/200/200' },
+      { Name:'Borin', Type:'Player', Status:'Active', HP:31, Notes:'Dwarf fighter', Image:'https://placekitten.com/210/210' },
+      { Name:'Goblin', Type:'Enemy', Status:'Spotted', HP:7, Notes:'Ambusher', Image:'https://placekitten.com/190/190' },
+      { Name:'Potion of Healing', Type:'Item', Status:'Inventory', Notes:'2d4+2 restore', Image:'https://placekitten.com/205/205' }
+    ];
+    state.headers = Object.keys(sample[0]);
+    state.objects = sample;
+    state.filtered = [...sample];
+    buildTable();
+    buildColumnFilter();
+    applyFilters();
+    buildKanban();
+    Persist.saveCache(state);
+    els.statusLine.textContent = 'Loaded sample data';
+  });
+}
+
+// Editing modal
+function wireEditing() {
+  document.getElementById('closeEditorModal')?.addEventListener('click', closeEditor);
+  document.getElementById('saveRowBtn')?.addEventListener('click', saveEditor);
+  document.getElementById('deleteRowBtn')?.addEventListener('click', deleteEditor);
+}
+
+let editorRow = null;
+function openEditor(rowObj) {
+  editorRow = rowObj;
+  const modal = document.getElementById('editorModal');
+  const form = document.getElementById('editForm');
+  form.innerHTML = state.headers.map(h=> `<label>${h}<input name="${h}" value="${(rowObj[h]||'').toString().replace(/"/g,'&quot;')}"></label>`).join('');
+  modal.classList.remove('hidden');
+}
+function closeEditor() { document.getElementById('editorModal').classList.add('hidden'); }
+function saveEditor() {
+  if (!editorRow) return; const form = document.getElementById('editForm');
+  const data = Object.fromEntries([...form.querySelectorAll('input,textarea')].map(i=> [i.name, i.value]));
+  Object.assign(editorRow, data);
+  applyFilters(); buildKanban(); buildCompendium(); Persist.saveCache(state); closeEditor();
+}
+function deleteEditor() {
+  if (!editorRow) return; state.objects = state.objects.filter(o=> o!==editorRow); applyFilters(); buildKanban(); buildCompendium(); Persist.saveCache(state); closeEditor();
+}
+
+function wireCompendiumSearch() {
+  const inp = document.getElementById('compSearch');
+  if (!inp || !window.buildCompendium) return;
+  const orig = window.buildCompendium;
+  window.buildCompendium = function() { orig(); const term = inp.value.toLowerCase(); if (!term) return; document.querySelectorAll('#compGallery .grid-token').forEach(c=> { if (!c.textContent.toLowerCase().includes(term)) c.style.display='none'; else c.style.display='flex'; }); };
+  inp.addEventListener('input', ()=> window.buildCompendium());
 }
 
 init();

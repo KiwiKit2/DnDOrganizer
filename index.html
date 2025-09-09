@@ -36,6 +36,7 @@
   <button id="uploadBtn" class="mini-btn" title="Upload local Excel/CSV">Upload</button>
   <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" />
   <a class="mini-btn" id="templateLink" href="assets/template.csv" download>Template</a>
+  <button id="sampleDataBtn" class="mini-btn" title="Insert sample data">Sample</button>
         <input type="search" id="search" placeholder="Search…" autocomplete="off" />
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
@@ -60,7 +61,12 @@
       </section>
 
       <section id="view-board" class="view">
+        <div class="board-toolbar">
+          <label>Group by <select id="groupSelect"></select></label>
+          <button id="addCardBtn" class="mini-btn">New Card</button>
+        </div>
         <div id="kanban" class="kanban"></div>
+        <div id="kanbanEmpty" class="empty-hint hidden">No cards to show. Load data or add a new card.</div>
       </section>
 
       <section id="view-map" class="view">
@@ -80,9 +86,11 @@
 
       <section id="view-compendium" class="view">
         <div class="comp-toolbar">
+          <input type="search" id="compSearch" placeholder="Search compendium…" />
           <label><input type="checkbox" id="showPlayers" checked /> Players</label>
           <label><input type="checkbox" id="showItems" checked /> Items</label>
           <label><input type="checkbox" id="showEnemies" checked /> Enemies</label>
+          <button id="newEntryBtn" class="mini-btn">New Entry</button>
         </div>
         <div id="compGallery" class="grid-board"></div>
         <div id="compDetail" class="comp-detail hidden"></div>
@@ -116,6 +124,17 @@
       <small>Stored locally in your browser. Share the link hash like <code>#sheet=&lt;url&gt;</code> to preload.</small>
     </div>
   </div>
+  <div id="editorModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel edit-panel">
+      <header><h2 id="editTitle">Edit Row</h2><button id="closeEditorModal" class="close-btn" aria-label="Close">×</button></header>
+      <form id="editForm"></form>
+      <div class="actions">
+        <button id="saveRowBtn" class="accent-btn" type="button">Save</button>
+        <button id="deleteRowBtn" class="mini-btn danger" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+  <div id="dropOverlay" class="drop-overlay hidden">Drop file to import…</div>
   <script src="js/config.js"></script>
   <script src="js/persist.js"></script>
   <script src="js/sheet.js"></script>
