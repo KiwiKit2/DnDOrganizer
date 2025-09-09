@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>404 – Mimic Found</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#0d0f11; --panel:#15191d; --border:#2a2f35; --accent:#4f8dff; --text:#d6d9dd; --dim:#7d848c; }
+* { box-sizing:border-box; }
+body { margin:0; font-family: 'Inter', system-ui, sans-serif; background:radial-gradient(circle at 30% 40%,#182026,#0d0f11 60%); color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:40px 20px; }
+.main { max-width:760px; width:100%; background:linear-gradient(145deg,#1b2024,#14181b); border:1px solid var(--border); border-radius:18px; padding:46px 42px 52px; position:relative; box-shadow:0 10px 40px -10px rgba(0,0,0,.65),0 0 0 1px #0a0c0e inset; overflow:hidden; }
+.main:before { content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 15%,rgba(79,141,255,.12),transparent 60%); pointer-events:none; }
+img { width:240px; max-width:55%; height:auto; filter:drop-shadow(0 6px 22px rgba(0,0,0,.6)); }
+.flex { display:flex; flex-wrap:wrap; align-items:center; gap:40px; }
+.hgroup h1 { margin:0 0 14px; font-size:50px; line-height:.95; letter-spacing:-2px; background:linear-gradient(90deg,#fff,#8abaff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.hgroup h1 span { font-size:22px; display:block; margin-top:8px; letter-spacing:0; font-weight:600; background:linear-gradient(90deg,#4f8dff,#c8dfff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.hgroup p { margin:0 0 22px; font-size:15px; color:var(--dim); max-width:380px; line-height:1.5; }
+.actions { display:flex; gap:14px; flex-wrap:wrap; }
+.btn { all:unset; cursor:pointer; background:var(--accent); color:#fff; padding:14px 22px; border-radius:14px; font-weight:600; font-size:14px; letter-spacing:.5px; box-shadow:0 4px 18px -6px rgba(0,0,0,.7),0 0 0 1px #0a0c0e inset; }
+.btn:hover { filter:brightness(1.1); }
+.btn.alt { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+.btn.alt:hover { border-color:#3a424a; }
+small { font-size:12px; color:var(--dim); display:block; margin-top:34px; }
+.code { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#1e2428; padding:4px 8px; border-radius:6px; color:#9ac7ff; }
+.badge { position:absolute; top:16px; right:-36px; background:var(--accent); color:#fff; font-size:12px; padding:8px 60px; transform:rotate(35deg); box-shadow:0 4px 16px -4px rgba(0,0,0,.6); letter-spacing:.5px; }
+@media (max-width:780px){ .main { padding:42px 30px 50px; } .flex { flex-direction:column; text-align:center; } .hgroup p { margin-left:auto; margin-right:auto; } .badge { display:none; } }
+</style>
+</head>
+<body>
+  <div class="main">
+    <div class="badge">IT'S A MIMIC!</div>
+    <div class="flex">
+      <img src="assets/dndMimic.png" alt="Sneaky DnD Mimic" />
+      <div class="hgroup">
+        <h1>404<span>That chest wasn’t loot…</span></h1>
+        <p>The page you tried to open was actually a mimic. It already rolled initiative and chomped your route. Maybe you mis-typed the path – or the DM moved it.</p>
+        <div class="actions">
+          <a class="btn" href="./">Back to Camp</a>
+          <button class="btn alt" id="rollBtn">Roll Perception</button>
+        </div>
+        <small id="flavor">Tip: Publish your Google Sheet as CSV before loading the dashboard. The mimic eats unpublished sheets.</small>
+      </div>
+    </div>
+  </div>
+<script>
+const lines = [
+  'You peer closer… it hisses. Nothing else here.',
+  'Natural 1. You pet the mimic. Regret follows.',
+  'You find tracks leading back to /index.html',
+  'Investigation reveals: the link was cursed.',
+  'Arcana check: This anomaly smells like a broken URL.',
+  'Perception 17: Secret door? Nope. Just 404 air.'
+];
+const btn = document.getElementById('rollBtn');
+btn.addEventListener('click', ()=> {
+  document.getElementById('flavor').textContent = lines[Math.random()*lines.length|0];
+});
+// Optional auto-redirect after delay
+setTimeout(()=> { if (document.visibilityState === 'visible') window.location.href = './'; }, 12000);
+</script>
+</body>
+</html>
