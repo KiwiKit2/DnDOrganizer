@@ -15,8 +15,9 @@
       <div class="brand">Organizer</div>
       <nav class="nav">
         <button class="nav-btn active" data-view="table">Table</button>
-        <button class="nav-btn" data-view="board">Board</button>
-        <button class="nav-btn" data-view="stats">Stats</button>
+        <button class="nav-btn" data-view="board">Kanban</button>
+        <button class="nav-btn" data-view="map">Map</button>
+        <button class="nav-btn" data-view="compendium">Compendium</button>
         <button class="nav-btn" data-view="about">About</button>
       </nav>
       <div class="sidebar-footer">
@@ -62,9 +63,29 @@
         <div id="kanban" class="kanban"></div>
       </section>
 
-      <section id="view-stats" class="view">
-        <canvas id="statsChart" height="180"></canvas>
-        <div id="statsSummary" class="stats-summary"></div>
+      <section id="view-map" class="view">
+        <div class="map-toolbar">
+          <button id="addTokensBtn" class="mini-btn">Add Filtered as Tokens</button>
+          <label>Grid <input type="number" id="gridSizeInput" value="50" min="20" max="120" step="5" style="width:70px" /></label>
+          <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
+        </div>
+        <div id="mapStage" class="map-stage">
+          <canvas id="battleMap" width="1200" height="800"></canvas>
+          <div class="token-layer" id="tokenLayer"></div>
+          <div class="fog-layer" id="fogLayer"></div>
+          <div class="walls-layer" id="wallsLayer"></div>
+        </div>
+        <p class="map-hint">Drag tokens. This is an early prototype: upcoming — fog reveal brush, vision cones, wall bounces.</p>
+      </section>
+
+      <section id="view-compendium" class="view">
+        <div class="comp-toolbar">
+          <label><input type="checkbox" id="showPlayers" checked /> Players</label>
+          <label><input type="checkbox" id="showItems" checked /> Items</label>
+          <label><input type="checkbox" id="showEnemies" checked /> Enemies</label>
+        </div>
+        <div id="compGallery" class="grid-board"></div>
+        <div id="compDetail" class="comp-detail hidden"></div>
       </section>
 
       <section id="view-about" class="view prose">
@@ -100,7 +121,6 @@
   <script src="js/sheet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="js/ui.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="js/stats.js"></script>
+  <script src="js/compendium.js"></script>
 </body>
 </html>

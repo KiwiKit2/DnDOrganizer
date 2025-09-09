@@ -83,7 +83,8 @@ function wireNav() {
       const v = btn.dataset.view;
       document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active'));
       document.querySelector('#view-' + v).classList.add('active');
-      if (v === 'stats') buildStats();
+  if (v === 'compendium') buildCompendium();
+  if (v === 'map') refreshMap();
     });
   });
   document.getElementById('themeSwitch').addEventListener('click', toggleTheme);
@@ -192,8 +193,10 @@ function applyFilters() {
     return true;
   });
   if (state.sort.col) sortBy(state.sort.col); else renderRows();
-  if (document.querySelector('.nav-btn.active')?.dataset.view === 'board') buildKanban();
-  if (document.querySelector('.nav-btn.active')?.dataset.view === 'stats') buildStats();
+  const view = document.querySelector('.nav-btn.active')?.dataset.view;
+  if (view === 'board') buildKanban();
+  if (view === 'compendium') buildCompendium();
+  if (view === 'map') refreshMap();
 }
 
 function buildKanban() {
@@ -292,6 +295,69 @@ function wireSheetModal() {
   window.addEventListener('keydown', e=> { if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
   const modalUploadBtn = document.getElementById('modalUploadBtn');
   if (modalUploadBtn) modalUploadBtn.addEventListener('click', ()=> els.fileInput.click());
+}
+
+// Map prototype
+function refreshMap() {
+  const canvas = document.getElementById('battleMap');
+  if (!canvas) return;
+  const gridSize = +document.getElementById('gridSizeInput').value || 50;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let x=0; x<canvas.width; x+=gridSize) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+  for (let y=0; y<canvas.height; y+=gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('addTokensBtn');
+  const clearBtn = document.getElementById('clearTokensBtn');
+  if (addBtn) addBtn.addEventListener('click', addTokensFromFiltered);
+  if (clearBtn) clearBtn.addEventListener('click', () => { document.getElementById('tokenLayer').innerHTML=''; });
+  const gridInput = document.getElementById('gridSizeInput');
+  if (gridInput) gridInput.addEventListener('change', refreshMap);
+  const layer = document.getElementById('tokenLayer');
+  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) dragToken(e); });
+});
+
+function addTokensFromFiltered() {
+  const layer = document.getElementById('tokenLayer');
+  if (!layer) return;
+  const state = window.__getState();
+  layer.innerHTML='';
+  const { headers } = state;
+  const imgField = ['Image','Img','Picture','Art','Avatar'].find(h=> headers.includes(h));
+  const typeField = ['Type','Category','Kind'].find(h=> headers.includes(h));
+  const nameField = headers.find(h=> /name|title/i.test(h)) || headers[0];
+  let x=80,y=80; const step=70; const maxRow = 900;
+  state.filtered.slice(0,60).forEach(o => {
+    const div = document.createElement('div');
+    div.className = 'token';
+    const type = (o[typeField]||'').toLowerCase();
+    if (/enemy|monster|foe/.test(type)) div.dataset.type='enemy'; else if (/player|pc|hero|character/.test(type)) div.dataset.type='player';
+    div.title = o[nameField];
+    if (imgField && o[imgField]) div.style.backgroundImage = `url(${o[imgField]})`;
+    div.style.left = x+'px';
+    div.style.top = y+'px';
+    div.dataset.drag='1';
+    layer.appendChild(div);
+    x += step; if (x>maxRow) { x=80; y+=step; }
+  });
+  refreshMap();
+}
+
+function dragToken(e) {
+  const token = e.target;
+  let sx = e.clientX, sy = e.clientY;
+  const startLeft = parseFloat(token.style.left); const startTop = parseFloat(token.style.top);
+  function move(ev) {
+    const dx = ev.clientX - sx; const dy = ev.clientY - sy;
+    token.style.left = (startLeft + dx) + 'px';
+    token.style.top = (startTop + dy) + 'px';
+  }
+  function up() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 }
 
 function wireUpload() {
