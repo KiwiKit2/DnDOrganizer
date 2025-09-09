@@ -50,7 +50,7 @@ function detectNumeric(columns, objects) {
   return [...numeric];
 }
 
-export async function loadSheet() {
+async function loadSheet() {
   const url = window.getSheetUrl();
   if (!url || url.startsWith('PUT_')) throw new Error('Set sheet URL (gear icon).');
   const { headers, rows, ms } = await fetchSheetCsv(url);
@@ -59,11 +59,11 @@ export async function loadSheet() {
   return { headers, rows, objects, numericCols, ms };
 }
 
-export function exportJson(data) {
+function exportJson(data) {
   downloadFile('export.json', JSON.stringify(data, null, 2));
 }
 
-export function exportCsv(headers, objects) {
+function exportCsv(headers, objects) {
   const esc = v => /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
   const body = objects.map(o => headers.map(h=> esc(o[h]||'')).join(',')).join('\n');
   downloadFile('export.csv', headers.join(',') + '\n' + body);
@@ -77,3 +77,4 @@ function downloadFile(name, content) {
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
 }
+window.Sheet = { loadSheet, exportJson, exportCsv };

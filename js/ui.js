@@ -1,5 +1,4 @@
-import { loadSheet, exportJson, exportCsv } from './sheet.js';
-import { saveCache, loadCache, diffCounts } from './persist.js';
+// Globals (Sheet, Persist) used to keep file:// usage working without module loader.
 
 let state = {
   headers: [],
@@ -27,7 +26,7 @@ async function init() {
   cacheEls();
   wireNav();
   wireEvents();
-  const cached = loadCache();
+  const cached = Persist.loadCache();
   if (cached) {
     state.headers = cached.headers;
     state.objects = cached.objects;
@@ -77,8 +76,8 @@ function wireEvents() {
   els.search.addEventListener('input', applyFilters);
   els.columnFilter.addEventListener('change', buildValueFilter);
   els.valueFilter.addEventListener('change', applyFilters);
-  document.getElementById('exportJson').addEventListener('click', ()=> exportJson(state.filtered));
-  document.getElementById('exportCsv').addEventListener('click', ()=> exportCsv(state.headers, state.filtered));
+  document.getElementById('exportJson').addEventListener('click', ()=> Sheet.exportJson(state.filtered));
+  document.getElementById('exportCsv').addEventListener('click', ()=> Sheet.exportCsv(state.headers, state.filtered));
   wireSheetModal();
 }
 
@@ -86,7 +85,7 @@ async function reload() {
   try {
     els.statusLine.textContent = 'Loading…';
   const before = { headers: state.headers, objects: state.objects };
-  const data = await loadSheet();
+  const data = await Sheet.loadSheet();
   state.headers = data.headers;
   state.objects = data.objects;
     state.numericCols = data.numericCols;
@@ -95,9 +94,9 @@ async function reload() {
     buildColumnFilter();
     applyFilters();
     buildKanban();
-  saveCache(state);
+  Persist.saveCache(state);
   const after = { headers: state.headers, objects: state.objects };
-  const { added, removed } = diffCounts(before.headers.length? before : null, after);
+  const { added, removed } = Persist.diffCounts(before.headers.length? before : null, after);
   els.statusLine.textContent = `Loaded ${state.objects.length} rows (${added}+ ${removed}-) in ${data.ms|0} ms`;
   } catch (e) {
     console.error(e);
