@@ -42,10 +42,14 @@
       const original = imgField && o[imgField] ? o[imgField] : '';
       if (!original) { img.src = PLACEHOLDER_IMG; img.style.opacity = .4; }
       else {
-        // optimistic set then swap to placeholder if blocked
-        img.src = original;
-        let watchdog = setTimeout(()=> { img.src = PLACEHOLDER_IMG; img.style.opacity=.55; }, 4500);
-        img.onerror = () => { clearTimeout(watchdog); img.src = PLACEHOLDER_IMG; img.style.opacity=.6; };
+        let blocked = false;
+        try { const host = new URL(original, location.href).hostname.toLowerCase(); blocked = BLOCKED_IMAGE_DOMAINS.some(d=> host.includes(d)); } catch {}
+        if (blocked) { img.src = PLACEHOLDER_IMG; img.style.opacity=.55; }
+        else {
+          img.src = original;
+          let watchdog = setTimeout(()=> { img.src = PLACEHOLDER_IMG; img.style.opacity=.55; }, 4500);
+          img.onerror = () => { clearTimeout(watchdog); img.src = PLACEHOLDER_IMG; img.style.opacity=.6; };
+        }
       }
       const h5 = document.createElement('h5');
       h5.textContent = o[nameField] || '(unnamed)';

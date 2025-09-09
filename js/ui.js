@@ -368,7 +368,14 @@ function addTokensFromFiltered() {
     div.title = o[nameField];
     if (imgField && o[imgField]) {
       const url = o[imgField];
-      testImage(url, ok => { div.style.backgroundImage = `url(${ok?url:PLACEHOLDER_IMG})`; });
+      try {
+        const host = new URL(url, location.href).hostname.toLowerCase();
+        if (BLOCKED_IMAGE_DOMAINS.some(d=> host.includes(d))) {
+          div.style.backgroundImage = `url(${PLACEHOLDER_IMG})`;
+        } else {
+          testImage(url, ok => { div.style.backgroundImage = `url(${ok?url:PLACEHOLDER_IMG})`; });
+        }
+      } catch { div.style.backgroundImage = `url(${PLACEHOLDER_IMG})`; }
     } else div.style.backgroundImage = `url(${PLACEHOLDER_IMG})`;
     div.style.left = x+'px';
     div.style.top = y+'px';
