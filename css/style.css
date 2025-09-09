@@ -122,7 +122,9 @@ select:focus {outline:2px solid var(--accent);}
 .map-toolbar {display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
 .map-stage {position:relative;overflow:auto;border:1px solid var(--border);border-radius:18px;background:#0b0e10;min-height:520px;box-shadow:var(--shadow-1);} 
 #battleMap {background:repeating-conic-gradient(from 0deg,#111 0deg,#111 90deg,#101417 90deg,#101417 180deg);background-size:60px 60px;display:block;border-radius:14px;}
-.token-layer,.fog-layer,.walls-layer {position:absolute;left:0;top:0;pointer-events:none;inset:0;} 
+.token-layer,.fog-layer,.walls-layer {position:absolute;left:0;top:0;inset:0;}
+.token-layer {pointer-events:auto;}
+.fog-layer,.walls-layer {pointer-events:none;}
 .token {position:absolute;transform:translate(-50%,-50%);width:60px;height:60px;border:2px solid var(--accent);border-radius:50%;background:#222 center/cover no-repeat;box-shadow:0 4px 12px -4px rgba(0,0,0,.6);} 
 .token[data-type="enemy"] {border-color:#ff5576;}
 .token[data-type="player"] {border-color:#4f8dff;}
