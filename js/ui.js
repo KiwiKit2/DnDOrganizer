@@ -363,7 +363,10 @@ function addTokensFromFiltered() {
     const type = (o[typeField]||'').toLowerCase();
     if (/enemy|monster|foe/.test(type)) div.dataset.type='enemy'; else if (/player|pc|hero|character/.test(type)) div.dataset.type='player';
     div.title = o[nameField];
-    if (imgField && o[imgField]) div.style.backgroundImage = `url(${o[imgField]})`;
+    if (imgField && o[imgField]) {
+      const url = o[imgField];
+      testImage(url, ok => { div.style.backgroundImage = `url(${ok?url:PLACEHOLDER_IMG})`; });
+    } else div.style.backgroundImage = `url(${PLACEHOLDER_IMG})`;
     div.style.left = x+'px';
     div.style.top = y+'px';
     div.dataset.drag='1';
@@ -384,6 +387,15 @@ function dragToken(e) {
   }
   function up() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+}
+
+function testImage(src, cb) {
+  const img = new Image();
+  let done=false; const finish = ok => { if (done) return; done=true; cb(ok); };
+  img.onload = () => finish(true);
+  img.onerror = () => finish(false);
+  img.src = src;
+  setTimeout(()=> finish(false), 6000);
 }
 
 function wireUpload() {

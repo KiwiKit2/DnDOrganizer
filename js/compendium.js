@@ -39,7 +39,10 @@
       const card = document.createElement('div');
       card.className = 'grid-token';
       const img = document.createElement('img');
-      if (imgField && o[imgField]) img.src = o[imgField]; else img.style.opacity = .25;
+      if (imgField && o[imgField]) {
+        img.src = o[imgField];
+        img.onerror = () => { img.src = PLACEHOLDER_IMG; img.style.opacity = .65; };
+      } else { img.src = PLACEHOLDER_IMG; img.style.opacity = .4; }
       const h5 = document.createElement('h5');
       h5.textContent = o[nameField] || '(unnamed)';
       const tags = document.createElement('div');
@@ -62,9 +65,7 @@
     close.onclick = ()=> detail.classList.add('hidden');
     const h2 = document.createElement('h2');
     h2.textContent = o[f.nameField] || '(unnamed)';
-    if (f.imgField && o[f.imgField]) {
-      const img = document.createElement('img');
-      img.src = o[f.imgField];
+  if (f.imgField && o[f.imgField]) { const img = document.createElement('img'); img.src = o[f.imgField]; img.onerror = () => { img.src = PLACEHOLDER_IMG; img.style.opacity = .6; };
       img.style.maxWidth = '180px';
       img.style.borderRadius = '14px';
       img.style.border = '1px solid var(--border)';

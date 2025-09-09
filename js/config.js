@@ -20,3 +20,6 @@ const NUMERIC_HINTS = ["Amount", "Value", "Count"];
 
 // Auto-refresh interval (ms)
 const AUTO_REFRESH_MS = 60_000;
+
+// Fallback image (simple gray token SVG) for blocked or missing external images
+const PLACEHOLDER_IMG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" rx="40" fill="%231d2125"/><circle cx="200" cy="150" r="90" fill="%23333"/><rect x="110" y="250" width="180" height="110" rx="55" fill="%23333"/><text x="200" y="230" font-size="120" text-anchor="middle" fill="%23555" font-family="Inter,Arial,sans-serif">?</text></svg>';
