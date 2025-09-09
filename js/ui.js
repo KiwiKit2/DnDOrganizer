@@ -85,7 +85,7 @@ function wireNav() {
       const v = btn.dataset.view;
       document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active'));
       document.querySelector('#view-' + v).classList.add('active');
-  if (v === 'compendium') buildCompendium();
+  if (v === 'compendium' || v === 'entities') buildCompendium();
   if (v === 'map') refreshMap();
     });
   });
@@ -111,6 +111,7 @@ function wireEvents() {
   wireCompendiumSearch();
   wireMoves();
   wireAdmin();
+  wireNewEntry();
 }
 
 async function reload() {
@@ -505,6 +506,19 @@ function wireCompendiumSearch() {
   const orig = window.buildCompendium;
   window.buildCompendium = function() { orig(); const term = inp.value.toLowerCase(); if (!term) return; document.querySelectorAll('#compGallery .grid-token').forEach(c=> { if (!c.textContent.toLowerCase().includes(term)) c.style.display='none'; else c.style.display='flex'; }); };
   inp.addEventListener('input', ()=> window.buildCompendium());
+}
+function wireNewEntry(){
+  const btn = document.getElementById('newEntryBtn');
+  if(!btn) return;
+  btn.addEventListener('click', () => {
+    if(!adminMode){ alert('Enable Admin mode to add entries'); return; }
+    // create blank row object with all headers
+    if(!state.headers.length){ alert('Load sheet data first'); return; }
+    const blank = Object.fromEntries(state.headers.map(h=>[h,'']));
+    state.objects.push(blank); state.filtered = [...state.objects];
+    editorRow = blank; openEditor(blank);
+    markDirty(); Persist.saveCache(state); buildKanban(); buildCompendium(); renderRows();
+  });
 }
 
 // Moves feature (lightweight list independent from sheet)
