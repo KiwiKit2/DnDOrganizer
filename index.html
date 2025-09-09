@@ -14,10 +14,11 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">Organizer</div>
       <nav class="nav">
-        <button class="nav-btn active" data-view="table">Table</button>
+        <button class="nav-btn active" data-view="moves">Moves</button>
+        <button class="nav-btn" data-view="entities">Entities</button>
         <button class="nav-btn" data-view="board">Kanban</button>
-        <button class="nav-btn" data-view="map">Map</button>
-        <button class="nav-btn" data-view="compendium">Compendium</button>
+        <button class="nav-btn" data-view="map">Board</button>
+        <button class="nav-btn" data-view="table">Table</button>
         <button class="nav-btn" data-view="about">About</button>
       </nav>
       <div class="sidebar-footer">
@@ -38,6 +39,7 @@
   <a class="mini-btn" id="templateLink" href="assets/template.csv" download>Template</a>
   <button id="sampleDataBtn" class="mini-btn" title="Insert sample data">Sample</button>
         <input type="search" id="search" placeholder="Search…" autocomplete="off" />
+  <button id="adminToggle" class="mini-btn" title="Toggle admin editing">Admin Off</button>
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
 
@@ -58,6 +60,49 @@
             <tbody></tbody>
           </table>
         </div>
+      </section>
+
+      <section id="view-moves" class="view active">
+        <div class="moves-layout">
+          <div class="moves-editor card-panel" id="movesEditorPanel">
+            <h2 class="panel-title">Create / Edit Move</h2>
+            <form id="moveForm" autocomplete="off">
+              <label>Name<input name="name" required placeholder="Fireball" /></label>
+              <label>Description<textarea name="description" placeholder="Area explosion dealing 8d6 fire"></textarea></label>
+              <label>Tags (comma separated)<input name="tags" placeholder="fire, area, damage" /></label>
+              <label>Image URL<input name="image" placeholder="https://.../fireball.png" /></label>
+              <div class="row-btns">
+                <button type="button" id="addMoveBtn" class="accent-btn">Save Move</button>
+                <button type="button" id="resetMoveBtn" class="mini-btn">Clear</button>
+                <button type="button" id="exportMovesBtn" class="mini-btn">Export Excel</button>
+                <button type="button" id="importMovesBtn" class="mini-btn">Import Excel</button>
+                <input type="file" id="importMovesInput" accept=".xlsx,.xls" style="display:none" />
+              </div>
+            </form>
+          </div>
+          <div class="moves-list card-panel">
+            <div class="moves-toolbar">
+              <input type="search" id="moveSearch" placeholder="Search moves by name or tag…" />
+            </div>
+            <table id="movesTable" class="moves-table">
+              <thead><tr><th>Name</th><th>Description</th><th>Tags</th><th class="actions-col">Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div id="movesEmpty" class="empty-hint hidden">No moves yet. Add one on the left.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-entities" class="view">
+        <div class="comp-toolbar">
+          <input type="search" id="compSearch" placeholder="Search entities…" />
+          <label><input type="checkbox" id="showPlayers" checked /> Players</label>
+          <label><input type="checkbox" id="showItems" checked /> Items</label>
+          <label><input type="checkbox" id="showEnemies" checked /> Enemies</label>
+          <button id="newEntryBtn" class="mini-btn">New Entry</button>
+        </div>
+        <div id="compGallery" class="grid-board"></div>
+        <div id="compDetail" class="comp-detail hidden"></div>
       </section>
 
       <section id="view-board" class="view">
@@ -84,17 +129,7 @@
         <p class="map-hint">Drag tokens. This is an early prototype: upcoming — fog reveal brush, vision cones, wall bounces.</p>
       </section>
 
-      <section id="view-compendium" class="view">
-        <div class="comp-toolbar">
-          <input type="search" id="compSearch" placeholder="Search compendium…" />
-          <label><input type="checkbox" id="showPlayers" checked /> Players</label>
-          <label><input type="checkbox" id="showItems" checked /> Items</label>
-          <label><input type="checkbox" id="showEnemies" checked /> Enemies</label>
-          <button id="newEntryBtn" class="mini-btn">New Entry</button>
-        </div>
-        <div id="compGallery" class="grid-board"></div>
-        <div id="compDetail" class="comp-detail hidden"></div>
-      </section>
+  <!-- entities replaces compendium -->
 
       <section id="view-about" class="view prose">
         <h1>About</h1>

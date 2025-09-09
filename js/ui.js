@@ -109,6 +109,8 @@ function wireEvents() {
   wireSample();
   wireEditing();
   wireCompendiumSearch();
+  wireMoves();
+  wireAdmin();
 }
 
 async function reload() {
@@ -503,6 +505,78 @@ function wireCompendiumSearch() {
   const orig = window.buildCompendium;
   window.buildCompendium = function() { orig(); const term = inp.value.toLowerCase(); if (!term) return; document.querySelectorAll('#compGallery .grid-token').forEach(c=> { if (!c.textContent.toLowerCase().includes(term)) c.style.display='none'; else c.style.display='flex'; }); };
   inp.addEventListener('input', ()=> window.buildCompendium());
+}
+
+// Moves feature (lightweight list independent from sheet)
+let moves = JSON.parse(localStorage.getItem('movesStore')||'[]');
+let editingMove = null;
+function wireMoves(){
+  const addBtn = document.getElementById('addMoveBtn');
+  if(!addBtn) return; // view not present
+  addBtn.addEventListener('click', saveMoveFromForm);
+  document.getElementById('resetMoveBtn').addEventListener('click', ()=> { editingMove=null; document.getElementById('moveForm').reset(); });
+  document.getElementById('moveSearch').addEventListener('input', renderMoves);
+  document.getElementById('exportMovesBtn').addEventListener('click', exportMovesExcel);
+  document.getElementById('importMovesBtn').addEventListener('click', ()=> document.getElementById('importMovesInput').click());
+  document.getElementById('importMovesInput').addEventListener('change', importMovesExcel);
+  renderMoves();
+}
+function saveMoveFromForm(){
+  const form = document.getElementById('moveForm');
+  const data = Object.fromEntries([...form.querySelectorAll('input,textarea')].map(i=>[i.name,i.value.trim()]));
+  if(!data.name){ alert('Name required'); return; }
+  data.tags = data.tags? data.tags.split(/[,;]+/).map(t=>t.trim()).filter(Boolean):[];
+  if(editingMove){ Object.assign(editingMove,data); }
+  else moves.push(data);
+  persistMoves();
+  form.reset(); editingMove=null; renderMoves();
+}
+function renderMoves(){
+  const body = document.querySelector('#movesTable tbody'); if(!body) return;
+  const term = (document.getElementById('moveSearch')?.value||'').toLowerCase();
+  const rows = moves.filter(m=> !term || m.name.toLowerCase().includes(term) || (m.tags||[]).some(t=>t.toLowerCase().includes(term)) );
+  body.innerHTML='';
+  rows.forEach(m=> {
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.description||'')}</td><td>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</td><td><button class='mini-btn' data-act='edit'>Edit</button><button class='mini-btn danger' data-act='del'>Del</button></td>`;
+    tr.querySelector('[data-act=edit]').addEventListener('click', ()=> { editingMove = m; fillMoveForm(m); });
+    tr.querySelector('[data-act=del]').addEventListener('click', ()=> { if(confirm('Delete move?')) { moves = moves.filter(x=>x!==m); persistMoves(); renderMoves(); } });
+    body.appendChild(tr);
+  });
+  document.getElementById('movesEmpty')?.classList.toggle('hidden', rows.length>0);
+}
+function fillMoveForm(m){
+  const f = document.getElementById('moveForm'); if(!f) return;
+  f.name.value = m.name||''; f.description.value = m.description||''; f.tags.value = (m.tags||[]).join(', '); f.image.value = m.image||'';
+}
+function persistMoves(){ localStorage.setItem('movesStore', JSON.stringify(moves)); }
+function exportMovesExcel(){
+  if(!moves.length){ alert('No moves'); return; }
+  const rows = moves.map(m=> ({ Name:m.name, Description:m.description, Tags:(m.tags||[]).join(', '), Image:m.image||'' }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Moves');
+  XLSX.writeFile(wb,'moves.xlsx');
+}
+async function importMovesExcel(e){
+  const file = e.target.files[0]; if(!file) return;
+  try{ const buf = await file.arrayBuffer(); const wb = XLSX.read(buf,{type:'array'}); const ws = wb.Sheets[wb.SheetNames[0]]; const json = XLSX.utils.sheet_to_json(ws,{defval:''});
+    moves = json.map(r=> ({ name:r.Name||r.name||'', description:r.Description||r.description||'', tags:(r.Tags||'').split(/[,;]+/).map(t=>t.trim()).filter(Boolean), image:r.Image||r.image||'' }));
+    persistMoves(); renderMoves();
+  }catch(err){ console.error(err); alert('Import failed: '+err.message);} finally { e.target.value=''; }
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+// Admin toggle (simple gate for editing buttons)
+let adminMode = false;
+function wireAdmin(){
+  const btn = document.getElementById('adminToggle'); if(!btn) return;
+  btn.addEventListener('click', () => { adminMode = !adminMode; btn.textContent = adminMode? 'Admin On':'Admin Off'; document.body.classList.toggle('admin', adminMode); updateAdminVisibility(); });
+  updateAdminVisibility();
+}
+function updateAdminVisibility(){
+  document.querySelectorAll('.admin-only').forEach(el=> el.style.display = adminMode? '' : 'none');
+  // For moves table actions
+  document.querySelectorAll('#movesTable .mini-btn').forEach(b=> { if(/edit|del/i.test(b.textContent)) b.style.display = adminMode? '' : 'none'; });
 }
 
 init();
