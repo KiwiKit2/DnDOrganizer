@@ -97,6 +97,18 @@ select:focus {outline:2px solid var(--accent);}
 .stat-box h3 {margin:0;font-size:13px;font-weight:600;color:var(--text-dim);}
 .stat-box .value {font-size:20px;font-weight:600;}
 
+/* Modal */
+.modal {position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:30px;z-index:200;backdrop-filter:blur(4px);} 
+.modal.hidden {display:none;}
+.modal-panel {width:100%;max-width:640px;background:var(--bg-alt);border:1px solid var(--border);border-radius:18px;padding:26px 30px 34px;display:flex;flex-direction:column;gap:18px;box-shadow:0 10px 32px -8px rgba(0,0,0,.7);} 
+.modal-panel header {display:flex;align-items:center;justify-content:space-between;margin:-6px -6px 4px;}
+.modal-panel h2 {margin:0;font-size:20px;letter-spacing:.5px;}
+.close-btn {all:unset;cursor:pointer;font-size:26px;line-height:1;padding:4px 10px;border-radius:10px;background:var(--bg-raised);border:1px solid var(--border);} 
+.close-btn:hover {border-color:var(--border-accent);} 
+textarea#sheetUrlInput {min-height:120px;background:var(--bg-raised);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:12px 14px;font-family:ui-monospace,monospace;font-size:13px;resize:vertical;}
+textarea#sheetUrlInput:focus {outline:2px solid var(--accent);} 
+.modal .actions {display:flex;gap:14px;flex-wrap:wrap;}
+
 ::-webkit-scrollbar {width:10px;height:10px;}
 ::-webkit-scrollbar-track {background:var(--bg);}
 ::-webkit-scrollbar-thumb {background:var(--border);border-radius:6px;}

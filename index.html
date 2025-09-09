@@ -30,7 +30,8 @@
     <main class="main">
       <header class="topbar">
         <div class="breadcrumbs" id="statusLine">Loading…</div>
-        <div class="spacer"></div>
+  <div class="spacer"></div>
+  <button id="sheetConfigBtn" class="mini-btn" title="Configure sheet">⚙️</button>
         <input type="search" id="search" placeholder="Search…" autocomplete="off" />
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
@@ -77,6 +78,18 @@
 
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
     </main>
+  </div>
+  <div id="sheetModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel">
+      <header><h2>Sheet Source</h2><button id="closeSheetModal" class="close-btn" aria-label="Close">×</button></header>
+      <p>Paste the Published CSV URL from Google Sheets. (File → Share → Publish to web → CSV)</p>
+      <textarea id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"></textarea>
+      <div class="actions">
+        <button id="saveSheetUrl" class="accent-btn">Save & Reload</button>
+        <button id="clearSheetUrl" class="mini-btn">Clear Override</button>
+      </div>
+      <small>Stored locally in your browser. Share the link hash like <code>#sheet=&lt;url&gt;</code> to preload.</small>
+    </div>
   </div>
   <script src="js/config.js"></script>
   <script>if(location.protocol==='file:'){console.warn('Running via file:// may block modules. Start a local server for full functionality.');}</script>

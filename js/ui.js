@@ -51,6 +51,7 @@ function cacheEls() {
   els.lastUpdated = document.querySelector('#lastUpdated');
   els.statusLine = document.querySelector('#statusLine');
   els.autoToggle = document.querySelector('#autoRefreshToggle');
+  els.sheetBtn = document.getElementById('sheetConfigBtn');
 }
 
 function wireNav() {
@@ -78,6 +79,7 @@ function wireEvents() {
   els.valueFilter.addEventListener('change', applyFilters);
   document.getElementById('exportJson').addEventListener('click', ()=> exportJson(state.filtered));
   document.getElementById('exportCsv').addEventListener('click', ()=> exportCsv(state.headers, state.filtered));
+  wireSheetModal();
 }
 
 async function reload() {
@@ -246,5 +248,26 @@ function markDirty() {
 
 // Stats (lazy loaded script defines buildStats hook)
 window.__getState = () => state;
+
+function wireSheetModal() {
+  const modal = document.getElementById('sheetModal');
+  const open = () => { modal.classList.remove('hidden'); document.getElementById('sheetUrlInput').value = window.getSheetUrl() || ''; };
+  const close = () => modal.classList.add('hidden');
+  els.sheetBtn.addEventListener('click', open);
+  document.getElementById('closeSheetModal').addEventListener('click', close);
+  document.getElementById('saveSheetUrl').addEventListener('click', () => {
+    const val = document.getElementById('sheetUrlInput').value.trim();
+    if (!val) return;
+    localStorage.setItem('sheetUrl', val);
+    close();
+    reload();
+  });
+  document.getElementById('clearSheetUrl').addEventListener('click', () => {
+    localStorage.removeItem('sheetUrl');
+    document.getElementById('sheetUrlInput').value='';
+  });
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  window.addEventListener('keydown', e=> { if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
+}
 
 init();

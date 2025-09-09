@@ -51,8 +51,9 @@ function detectNumeric(columns, objects) {
 }
 
 export async function loadSheet() {
-  if (!GOOGLE_SHEET_CSV_URL || GOOGLE_SHEET_CSV_URL.startsWith('PUT_')) throw new Error('Set GOOGLE_SHEET_CSV_URL in config.js');
-  const { headers, rows, ms } = await fetchSheetCsv(GOOGLE_SHEET_CSV_URL);
+  const url = window.getSheetUrl();
+  if (!url || url.startsWith('PUT_')) throw new Error('Set sheet URL (gear icon).');
+  const { headers, rows, ms } = await fetchSheetCsv(url);
   const objects = toObjects(headers, rows);
   const numericCols = detectNumeric(headers, objects);
   return { headers, rows, objects, numericCols, ms };
