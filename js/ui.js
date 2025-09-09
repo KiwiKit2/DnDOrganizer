@@ -506,6 +506,139 @@ function revealAt(x,y){ if(!fogCtx) return; const r=90; fogCtx.globalCompositeOp
 function saveFog(){ if(!fogCtx) return; try { localStorage.setItem('fogData', fogCtx.canvas.toDataURL()); } catch {} }
 function loadFog(){ try { const d=localStorage.getItem('fogData'); if(!d||!fogCtx) return; const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); }; img.src=d; } catch {} }
 
+// ---------------- Advanced Map Enhancements ----------------
+// Data models
+let walls = []; // each wall: {x1,y1,x2,y2}
+let templates = []; // AoE templates {id, kind:circle|cone|line, x,y,w,h,angle}
+let initiative = { order: [], current: 0 }; // order: [{id, name}]
+let multiSelect = null; // {x1,y1,x2,y2}
+let boardSettings = { visionAuto:true, bgImage:null };
+let fogHistory = [];
+
+// Utility IDs
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  wireAdvancedMap();
+});
+
+function wireAdvancedMap(){
+  const stage = document.getElementById('mapStage'); if(!stage) return;
+  // Load persisted state
+  loadWalls(); loadTemplates(); loadInitiative(); loadBoardSettings();
+  drawWalls(); drawTemplates(); renderInitiative(); applyBoardBackground();
+  // Buttons
+  document.getElementById('wallModeBtn')?.addEventListener('click', toggleWallMode);
+  document.getElementById('visionToggleBtn')?.addEventListener('click', () => { boardSettings.visionAuto = !boardSettings.visionAuto; persistBoardSettings(); computeVisionAuto(); });
+  document.getElementById('rulerBtn')?.addEventListener('click', startRulerMode);
+  document.getElementById('addCircleTemplateBtn')?.addEventListener('click', ()=> addTemplate('circle'));
+  document.getElementById('addConeTemplateBtn')?.addEventListener('click', ()=> addTemplate('cone'));
+  document.getElementById('addLineTemplateBtn')?.addEventListener('click', ()=> addTemplate('line'));
+  document.getElementById('bgImageBtn')?.addEventListener('click', () => document.getElementById('bgImageInput').click());
+  document.getElementById('bgImageInput')?.addEventListener('change', handleBgUpload);
+  document.getElementById('exportBoardBtn')?.addEventListener('click', exportBoardState);
+  document.getElementById('importBoardBtn')?.addEventListener('click', ()=> document.getElementById('importBoardInput').click());
+  document.getElementById('importBoardInput')?.addEventListener('change', importBoardState);
+  document.getElementById('fogUndoBtn')?.addEventListener('click', undoFogStep);
+  // Initiative
+  document.getElementById('initAddBtn')?.addEventListener('click', addSelectedToInitiative);
+  document.getElementById('initPrevBtn')?.addEventListener('click', ()=> cycleInitiative(-1));
+  document.getElementById('initNextBtn')?.addEventListener('click', ()=> cycleInitiative(1));
+  document.getElementById('initClearBtn')?.addEventListener('click', ()=> { initiative={order:[],current:0}; persistInitiative(); renderInitiative(); });
+  // Global listeners for multi-select
+  stage.addEventListener('mousedown', onStageMouseDown);
+  window.addEventListener('keydown', e=> { if(e.key==='m' || e.key==='M') startRulerMode(); });
+  // Context menu
+  stage.addEventListener('contextmenu', onContextMenu);
+  window.addEventListener('click', hideContextMenu);
+  computeVisionAuto();
+}
+
+// ----- Walls -----
+let wallMode = false, wallTempPoint=null;
+function toggleWallMode(){ wallMode = !wallMode; const b=document.getElementById('wallModeBtn'); if(b) b.classList.toggle('active', wallMode); }
+function onStageMouseDown(e){
+  const stage = document.getElementById('mapStage');
+  if(e.target.closest('.token') || e.target.closest('.token-context')) return;
+  if(wallMode){
+    const rect = stage.getBoundingClientRect();
+    const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+    if(!wallTempPoint){ wallTempPoint={x,y}; }
+    else { walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x,y2:y}); wallTempPoint=null; persistWalls(); drawWalls(); }
+    e.preventDefault(); return;
+  }
+  // Multi-select start (Shift)
+  if(e.shiftKey){ const rect = stage.getBoundingClientRect(); multiSelect={x1:e.clientX-rect.left,y1:e.clientY-rect.top,x2:e.clientX-rect.left,y2:e.clientY-rect.top}; startMultiDrag(); e.preventDefault(); }
+}
+function startMultiDrag(){ const stage=document.getElementById('mapStage'); function mv(ev){ const r=stage.getBoundingClientRect(); multiSelect.x2=ev.clientX-r.left; multiSelect.y2=ev.clientY-r.top; drawMultiSelect(); } function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); finalizeMultiSelect(); } document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); }
+function drawMultiSelect(){ let box=document.getElementById('multiSelectRect'); if(!box){ box=document.createElement('div'); box.id='multiSelectRect'; box.className='multi-select-rect'; document.getElementById('mapStage').appendChild(box);} const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1); Object.assign(box.style,{left:l+'px',top:t+'px',width:w+'px',height:h+'px'}); }
+function finalizeMultiSelect(){ const box=document.getElementById('multiSelectRect'); if(box) box.remove(); if(!multiSelect) return; const layer=document.getElementById('tokenLayer'); const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),r=Math.max(x1,x2),b=Math.max(y1,y2); [...layer.querySelectorAll('.token')].forEach(tok=> { const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); if(x>=l && x<=r && y>=t && y<=b) tok.classList.add('selected'); }); multiSelect=null; }
+function drawWalls(){ const c=document.getElementById('wallsCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=3; walls.forEach(w=> { ctx.beginPath(); ctx.moveTo(w.x1,w.y1); ctx.lineTo(w.x2,w.y2); ctx.stroke(); }); if(wallTempPoint){ ctx.fillStyle='var(--accent)'; ctx.beginPath(); ctx.arc(wallTempPoint.x,wallTempPoint.y,4,0,Math.PI*2); ctx.fill(); } }
+function persistWalls(){ try{ localStorage.setItem('mapWalls', JSON.stringify(walls)); }catch{} }
+function loadWalls(){ try{ const raw=localStorage.getItem('mapWalls'); if(raw) walls=JSON.parse(raw); }catch{} }
+
+// ----- Templates (AoE) -----
+function addTemplate(kind){ const t={id:uid(),kind,x:300,y:300,w:160,h:160,angle:0}; templates.push(t); persistTemplates(); drawTemplates(); }
+function drawTemplates(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); // visual handles simplified with DOM alt? using canvas now
+  templates.forEach(t=> { ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.angle*Math.PI/180); ctx.strokeStyle='rgba(79,141,255,0.9)'; ctx.fillStyle='rgba(79,141,255,0.18)'; ctx.lineWidth=2; if(t.kind==='circle'){ ctx.beginPath(); ctx.arc(0,0,t.w/2,0,Math.PI*2); ctx.fill(); ctx.stroke(); } else if(t.kind==='cone'){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(t.w, -t.h/2); ctx.lineTo(t.w, t.h/2); ctx.closePath(); ctx.fill(); ctx.stroke(); } else if(t.kind==='line'){ ctx.beginPath(); ctx.rect(0,-t.h/2,t.w,t.h); ctx.fill(); ctx.stroke(); } ctx.restore(); });
+}
+function persistTemplates(){ try{ localStorage.setItem('mapTemplates', JSON.stringify(templates)); }catch{} }
+function loadTemplates(){ try{ const raw=localStorage.getItem('mapTemplates'); if(raw) templates=JSON.parse(raw); }catch{} }
+
+// ----- Initiative -----
+function addSelectedToInitiative(){ const list=[...document.querySelectorAll('.token.selected')]; list.forEach(t=> { const id=t.dataset.id||(t.dataset.id=uid()); if(!initiative.order.some(o=>o.id===id)) initiative.order.push({id,name:t.title||'token'}); }); persistInitiative(); renderInitiative(); }
+function renderInitiative(){ const el=document.getElementById('initiativeList'); if(!el) return; el.innerHTML=''; initiative.order.forEach((o,i)=> { const li=document.createElement('li'); li.textContent=(i+1)+'. '+o.name; if(i===initiative.current) li.classList.add('active'); const del=document.createElement('button'); del.textContent='✕'; del.addEventListener('click',()=> { initiative.order=initiative.order.filter(x=>x!==o); if(initiative.current>=initiative.order.length) initiative.current=0; persistInitiative(); renderInitiative(); }); li.appendChild(del); el.appendChild(li); }); }
+function cycleInitiative(dir){ if(!initiative.order.length) return; initiative.current=(initiative.current+dir+initiative.order.length)%initiative.order.length; renderInitiative(); highlightActiveToken(); }
+function highlightActiveToken(){ const cur=initiative.order[initiative.current]; document.querySelectorAll('.token').forEach(t=> t.classList.remove('highlight-move')); if(!cur) return; const tok=[...document.querySelectorAll('.token')].find(t=> t.dataset.id===cur.id); if(tok) tok.classList.add('highlight-move'); }
+function persistInitiative(){ try{ localStorage.setItem('mapInitiative', JSON.stringify(initiative)); }catch{} }
+function loadInitiative(){ try{ const raw=localStorage.getItem('mapInitiative'); if(raw) initiative=JSON.parse(raw); }catch{} }
+
+// ----- Vision (simplified radial reveal) -----
+function computeVisionAuto(){ if(!boardSettings.visionAuto) return; // Basic: reveal around each player token
+  pushFogHistory();
+  const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; loadFog(); // ensure fog is current
+  fogCtx.globalCompositeOperation='destination-out';
+  [...document.querySelectorAll('.token')].forEach(t=> { const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); });
+  saveFog();
+}
+function setTokenVision(token, radius){ token.dataset.vision=radius; if(boardSettings.visionAuto) computeVisionAuto(); }
+
+// ----- Context Menu -----
+function onContextMenu(e){ const tok = e.target.closest('.token'); if(!tok){ return; }
+  e.preventDefault(); selectToken(tok); showContextMenu(e.clientX,e.clientY,tok); }
+function showContextMenu(x,y,token){ hideContextMenu(); const menu=document.createElement('div'); menu.className='token-context'; menu.id='tokenContextMenu'; menu.innerHTML='<ul>'+[
+    {k:'vision',label:'Set Vision'},
+    {k:'hp',label:'Set HP'},
+    {k:'dup',label:'Duplicate'},
+    {k:'del',label:'Delete Token'}
+  ].map(o=>`<li data-k="${o.k}">${o.label}</li>`).join('')+'</ul>'; document.body.appendChild(menu); positionMenu(menu,x,y); menu.addEventListener('click', ev=> { const li=ev.target.closest('li'); if(!li) return; const k=li.dataset.k; if(k==='vision'){ const r=prompt('Vision radius px:', token.dataset.vision||'180'); if(r) setTokenVision(token, parseInt(r)||0); } else if(k==='hp'){ const hp=prompt('HP value:', token.dataset.hp||''); if(hp!==null){ token.dataset.hp=hp; updateTokenBadges(token); saveTokens(); } } else if(k==='dup'){ duplicateToken(token); } else if(k==='del'){ token.remove(); saveTokens(); } hideContextMenu(); }); }
+function positionMenu(menu,x,y){ const vw=window.innerWidth,vh=window.innerHeight; const r=menu.getBoundingClientRect(); if(x+r.width>vw) x=vw-r.width-10; if(y+r.height>vh) y=vh-r.height-10; menu.style.left=x+'px'; menu.style.top=y+'px'; }
+function hideContextMenu(){ document.getElementById('tokenContextMenu')?.remove(); }
+function duplicateToken(tok){ const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); saveTokens(); }
+function updateTokenBadges(tok){ let stack=tok.querySelector('.badge-stack'); if(!stack){ stack=document.createElement('div'); stack.className='badge-stack'; tok.appendChild(stack); } stack.innerHTML=''; if(tok.dataset.hp){ const hp=document.createElement('div'); hp.className='hp-badge'; hp.textContent=tok.dataset.hp; stack.appendChild(hp); } }
+
+// ----- Ruler -----
+let rulerActive=false; let rulerStart=null; let rulerEl=null;
+function startRulerMode(){ rulerActive=true; document.getElementById('rulerBtn')?.classList.add('active'); const stage=document.getElementById('mapStage'); stage.addEventListener('mousedown', rulerDown,{once:true}); }
+function rulerDown(e){ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); rulerStart={x:e.clientX-rect.left,y:e.clientY-rect.top}; rulerEl=document.createElement('div'); rulerEl.className='ruler-line'; stage.appendChild(rulerEl); function mv(ev){ const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const dx=rx-rulerStart.x, dy=ry-rulerStart.y; const len=Math.sqrt(dx*dx+dy*dy); rulerEl.textContent=len.toFixed(0); const left=Math.min(rx,rulerStart.x), top=Math.min(ry,rulerStart.y); Object.assign(rulerEl.style,{left:left+'px',top:top+'px',width:Math.abs(dx)+'px',height:Math.abs(dy)+'px'}); } function up(){ stage.removeEventListener('mousemove',mv); stage.removeEventListener('mouseup',up); setTimeout(()=>{ rulerEl?.remove(); rulerActive=false; document.getElementById('rulerBtn')?.classList.remove('active'); },2000); } stage.addEventListener('mousemove',mv); stage.addEventListener('mouseup',up); }
+
+// ----- Background Image -----
+function handleBgUpload(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { boardSettings.bgImage=ev.target.result; persistBoardSettings(); applyBoardBackground(); }; reader.readAsDataURL(file); e.target.value=''; }
+function applyBoardBackground(){ const c=document.getElementById('battleMap'); if(!c) return; if(boardSettings.bgImage){ c.style.backgroundImage=`url(${boardSettings.bgImage})`; c.parentElement.classList.add('background-image'); } else { c.style.backgroundImage=''; c.parentElement.classList.remove('background-image'); } }
+
+// ----- Export / Import -----
+function exportBoardState(){ const payload={ tokens:[...document.querySelectorAll('.token')].map(t=>({x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',hp:t.dataset.hp||'',vision:t.dataset.vision||'',bg:t.style.backgroundImage||''})), walls, templates, initiative, boardSettings, fog: localStorage.getItem('fogData')||null }; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.download='board-state.json'; a.href=URL.createObjectURL(blob); a.click(); }
+function importBoardState(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { try{ const data=JSON.parse(ev.target.result); if(data.tokens){ localStorage.setItem('mapTokens', JSON.stringify(data.tokens)); loadTokens(); } if(data.walls){ walls=data.walls; persistWalls(); drawWalls(); } if(data.templates){ templates=data.templates; persistTemplates(); drawTemplates(); } if(data.initiative){ initiative=data.initiative; persistInitiative(); renderInitiative(); } if(data.boardSettings){ boardSettings=data.boardSettings; persistBoardSettings(); applyBoardBackground(); } if(data.fog){ localStorage.setItem('fogData', data.fog); loadFog(); } computeVisionAuto(); }catch(err){ alert('Import failed: '+err.message); } finally { e.target.value=''; }; }; reader.readAsText(file); }
+
+// ----- Persistence helpers -----
+function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
+function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings'); if(raw) boardSettings=JSON.parse(raw); }catch{} }
+
+// ----- Fog history (undo) -----
+function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
+function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
+
+
 
 function wireUpload() {
   els.uploadBtn.addEventListener('click', ()=> els.fileInput.click());

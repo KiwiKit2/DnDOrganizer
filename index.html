@@ -127,14 +127,48 @@
             <button id="fogRevealBtn" class="mini-btn">Reveal</button>
             <button id="fogClearBtn" class="mini-btn">Clear Fog</button>
           </div>
+          <div class="map-tools-group">
+            <button id="wallModeBtn" class="mini-btn" title="Draw walls">Walls</button>
+            <button id="visionToggleBtn" class="mini-btn" title="Toggle auto vision reveal">Vision Auto</button>
+            <button id="rulerBtn" class="mini-btn" title="Measure distance (M)">Ruler</button>
+            <div class="aoe-group">
+              <button id="addCircleTemplateBtn" class="mini-btn" title="Add circle template">◯</button>
+              <button id="addConeTemplateBtn" class="mini-btn" title="Add cone template">⌔</button>
+              <button id="addLineTemplateBtn" class="mini-btn" title="Add line template">／</button>
+            </div>
+            <div class="fog-adv-group">
+              <label>Brush <input type="range" id="fogBrushSize" min="20" max="200" value="90"></label>
+              <select id="fogBrushShape"><option value="circle">Circle</option><option value="rect">Square</option></select>
+              <button id="fogUndoBtn" class="mini-btn" title="Undo fog step">Undo</button>
+            </div>
+            <button id="bgImageBtn" class="mini-btn" title="Set background image">BG Img</button>
+            <button id="exportBoardBtn" class="mini-btn" title="Export board state">Export</button>
+            <button id="importBoardBtn" class="mini-btn" title="Import board state">Import</button>
+            <input type="file" id="bgImageInput" accept="image/*" style="display:none" />
+            <input type="file" id="importBoardInput" accept="application/json" style="display:none" />
+          </div>
         </div>
         <div id="mapStage" class="map-stage">
           <canvas id="battleMap" width="1200" height="800"></canvas>
           <div class="token-layer" id="tokenLayer"></div>
+          <canvas class="walls-layer" id="wallsCanvas" width="1200" height="800"></canvas>
           <canvas class="fog-layer" id="fogCanvas" width="1200" height="800"></canvas>
-          <div class="walls-layer" id="wallsLayer"></div>
+          <canvas class="overlay-layer" id="overlayCanvas" width="1200" height="800"></canvas>
         </div>
-        <p class="map-hint">Drag tokens. This is an early prototype: upcoming — fog reveal brush, vision cones, wall bounces.</p>
+        <div class="map-panels">
+          <div class="initiative-panel" id="initiativePanel">
+            <div class="panel-head">Initiative
+              <div class="panel-actions">
+                <button id="initAddBtn" class="mini-btn">Add Sel</button>
+                <button id="initPrevBtn" class="mini-btn">◀</button>
+                <button id="initNextBtn" class="mini-btn">▶</button>
+                <button id="initClearBtn" class="mini-btn">Clear</button>
+              </div>
+            </div>
+            <ol id="initiativeList"></ol>
+          </div>
+        </div>
+        <p class="map-hint">Drag tokens. Walls mode to draw barriers. Vision Auto reveals based on token radius (right‑click token → Set Vision). Ruler (M) to measure. Export to save board JSON.</p>
       </section>
 
   <!-- entities replaces compendium -->
