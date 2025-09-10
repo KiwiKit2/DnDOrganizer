@@ -23,10 +23,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Prepare dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp -f index.html dist/
+          cp -rf css js assets dist/ 2>/dev/null || true
+          cp -f manifest.webmanifest dist/ 2>/dev/null || true
+          cp -f sw.js dist/ 2>/dev/null || true
+          cp -f .nojekyll dist/ 2>/dev/null || true
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
