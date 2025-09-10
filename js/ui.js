@@ -599,7 +599,14 @@ function loadMpPrefs(){ try{ return { server: localStorage.getItem('mp:server')|
 // Utility IDs
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
+// Global help wiring (works on every view)
+function wireHelp(){
+  document.getElementById('helpFab')?.addEventListener('click', ()=> document.getElementById('mapHelpModal')?.classList.remove('hidden'));
+  document.getElementById('closeMapHelp')?.addEventListener('click', ()=> document.getElementById('mapHelpModal')?.classList.add('hidden'));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  wireHelp();
   wireAdvancedMap();
 });
 
@@ -623,9 +630,6 @@ function wireAdvancedMap(){
   document.getElementById('fogUndoBtn')?.addEventListener('click', undoFogStep);
   document.getElementById('gmModeToggle')?.addEventListener('change', e=> { boardSettings.gmMode = !!e.target.checked; persistBoardSettings(); applyGmMode(); });
   document.getElementById('exportImageBtn')?.addEventListener('click', exportPngSnapshot);
-  document.getElementById('mapHelpBtn')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.remove('hidden'));
-  document.getElementById('closeMapHelp')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.add('hidden'));
-  document.getElementById('helpFab')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.remove('hidden'));
   // Simple Mode
   const sT=document.getElementById('simpleModeToggle'); if(sT){ const val=loadPref('simpleMode','true'); sT.checked=val==='true'; document.body.classList.toggle('simple-mode', sT.checked); sT.addEventListener('change', ()=> { savePref('simpleMode', sT.checked?'true':'false'); document.body.classList.toggle('simple-mode', sT.checked); }); }
   // Perf/Lock/Cursors toggles
