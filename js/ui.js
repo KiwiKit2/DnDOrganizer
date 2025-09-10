@@ -1236,19 +1236,29 @@ function initWelcomeLanding(){
   document.getElementById('wlSaveRelay')?.addEventListener('click', ()=>{
     const v=(serverInline?.value||'').trim();
     if(!v){ toast('Enter a wss:// relay URL'); return; }
-    try{ const url=new URL(v); if(url.protocol!=='wss:' && url.protocol!=='ws:') throw new Error('bad'); }catch{ toast('Relay must start with wss://'); return; }
+    try{ const url=new URL(v); if(url.protocol!=='wss:' && url.protocol!=='ws:') throw new Error('bad'); }catch{ toast('Relay must start with ws:// or wss://'); return; }
     mp.server=v; saveMpPrefs(); toast('Relay saved');
   });
   document.getElementById('wlCreate')?.addEventListener('click', ()=>{
     const name=(nameEl?.value||'GM').trim()||'GM';
     const room=genRoom();
     const server=(serverInline?.value||prefs.server||'').trim();
-    if(!server){ toast('Enter Relay URL then Save Relay'); return; }
     document.getElementById('mpName') && (document.getElementById('mpName').value=name);
     document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
-    document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
+    if(server){ document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server); }
     modal.classList.add('hidden');
-    mp.server=server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); renderSessionBanner();
+    if(server){
+      // Online host as GM
+      mp.server=server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Connecting…');
+      toast('Hosting as GM');
+    } else {
+      // Fallback: local solo GM session (no relay yet)
+      mp.server=''; mp.room=''; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); setMpStatus('Solo');
+      toast('Created local table (offline). Save a Relay to go online.');
+    }
+    // Jump to Map view for immediate feedback
+    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
+    renderSessionBanner();
   });
   document.getElementById('wlJoin')?.addEventListener('click', ()=>{
     const name=(nameEl?.value||'Player').trim()||'Player';
@@ -1259,11 +1269,16 @@ function initWelcomeLanding(){
     document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
     document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
     modal.classList.add('hidden');
-    mp.server=server; mp.room=room; mp.name=name; mp.isGM=false; mp.connected=false; saveMpPrefs(); connectWs(); renderSessionBanner();
+    mp.server=server; mp.room=room; mp.name=name; mp.isGM=false; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Connecting…');
+    // Navigate to Map view
+    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
+    renderSessionBanner(); toast('Joining table…');
   });
   document.getElementById('wlSolo')?.addEventListener('click', ()=>{
     const soloName=(nameEl?.value||'').trim(); if(soloName){ mp.name=soloName; saveMpPrefs(); }
-    mp.server=''; mp.room=''; mp.connected=false; modal.classList.add('hidden'); setMpStatus('Solo'); renderSessionBanner();
+    mp.server=''; mp.room=''; mp.connected=false; modal.classList.add('hidden'); setMpStatus('Solo');
+    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
+    renderSessionBanner(); toast('Solo mode');
   });
   // Advanced removed for simplicity
 }
