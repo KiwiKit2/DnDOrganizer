@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Organizer Dashboard</title>
+  <title>DnDex</title>
+  <base href="./">
+  <meta name="description" content="DnDex — simple, collaborative VTT and organizer with scenes, fog, walls, and live cursors." />
+  <meta name="theme-color" content="#0d0f11" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%234f8dff'/%3E%3Ctext x='50' y='60' font-size='56' text-anchor='middle' fill='white' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,7 +17,7 @@
 <body>
   <div id="app" class="app-shell">
     <aside class="sidebar" id="sidebar">
-      <div class="brand">Organizer</div>
+  <div class="brand">DnDex</div>
       <nav class="nav">
         <button class="nav-btn active" data-view="moves">Moves</button>
         <button class="nav-btn" data-view="entities">Entities</button>
@@ -33,6 +38,7 @@
       <header class="topbar">
         <div class="breadcrumbs" id="statusLine">Loading…</div>
   <div class="spacer"></div>
+  <label class="toggle" title="Lean mode"><input type="checkbox" id="leanToggle" /> <span>Lean</span></label>
   <button id="sheetConfigBtn" class="mini-btn" title="Configure sheet">⚙️</button>
   <button id="uploadBtn" class="mini-btn" title="Upload local Excel/CSV">Upload</button>
   <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" />
@@ -40,6 +46,7 @@
   <button id="sampleDataBtn" class="mini-btn" title="Insert sample data">Sample</button>
         <input type="search" id="search" placeholder="Search…" autocomplete="off" />
   <button id="adminToggle" class="mini-btn" title="Toggle admin editing">Admin Off</button>
+  <button id="resetAppBtn" class="mini-btn danger" title="Reset app (clears local data)">Reset</button>
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
 
@@ -122,6 +129,10 @@
           <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
           <button id="addSingleTokenBtn" class="mini-btn">Add Token</button>
           <label>Snap <input type="checkbox" id="snapToggle" checked /></label>
+          <label class="toggle"><input type="checkbox" id="simpleModeToggle" checked /> <span>Simple Mode</span></label>
+          <label class="toggle"><input type="checkbox" id="perfModeToggle" /> <span>Perf Mode</span></label>
+          <label class="toggle"><input type="checkbox" id="lockBoardToggle" /> <span>Lock</span></label>
+          <label class="toggle"><input type="checkbox" id="cursorsToggle" checked /> <span>Cursors</span></label>
           <div class="fog-group">
             <button id="fogFullBtn" class="mini-btn">Fog Full</button>
             <button id="fogRevealBtn" class="mini-btn">Reveal</button>
@@ -146,6 +157,12 @@
             <button id="importBoardBtn" class="mini-btn" title="Import board state">Import</button>
             <input type="file" id="bgImageInput" accept="image/*" style="display:none" />
             <input type="file" id="importBoardInput" accept="application/json" style="display:none" />
+            <div class="scenes-group">
+              <label>Scene <select id="sceneSelect"></select></label>
+              <button id="sceneSaveBtn" class="mini-btn" title="Save current as scene">Save</button>
+              <button id="sceneLoadBtn" class="mini-btn" title="Load selected scene">Load</button>
+              <button id="sceneManageBtn" class="mini-btn" title="Manage scenes">Manage</button>
+            </div>
             <div class="layer-toggles">
               <label><input type="checkbox" id="showFogToggle" checked /> Fog</label>
               <label><input type="checkbox" id="showWallsToggle" checked /> Walls</label>
@@ -153,22 +170,48 @@
               <label><input type="checkbox" id="collideWallsToggle" /> Collide</label>
               <label><input type="checkbox" id="gmModeToggle" /> GM Mode</label>
             </div>
+            <div class="mp-group">
+              <button id="hostGameBtn" class="mini-btn" title="Host a session as GM">Host</button>
+              <button id="joinGameBtn" class="mini-btn" title="Join a session as Player/GM">Join</button>
+              <button id="shareGameBtn" class="mini-btn" title="Copy join link">Share</button>
+              <label title="Allow players to edit the board"><input type="checkbox" id="playersEditToggle" /> Players Edit</label>
+              <span id="mpStatus" class="mp-status">Offline</span>
+            </div>
             <button id="clearWallsBtn" class="mini-btn" title="Delete all walls">Clear Walls</button>
             <button id="clearTemplatesBtn" class="mini-btn" title="Delete all templates">Clear Templates</button>
             <button id="exportImageBtn" class="mini-btn" title="Export map as PNG">Export PNG</button>
             <button id="mapHelpBtn" class="mini-btn" title="Show map help">Help</button>
           </div>
         </div>
-        <div id="mapStage" class="map-stage">
+  <div id="sessionBanner" class="session-banner" aria-live="polite"></div>
+  <div id="mapStage" class="map-stage">
           <canvas id="battleMap" width="1200" height="800"></canvas>
           <div class="token-layer" id="tokenLayer"></div>
           <canvas class="walls-layer" id="wallsCanvas" width="1200" height="800"></canvas>
           <canvas class="fog-layer" id="fogCanvas" width="1200" height="800"></canvas>
           <canvas class="overlay-layer" id="overlayCanvas" width="1200" height="800"></canvas>
+          <div class="cursor-layer" id="cursorLayer" aria-hidden="true"></div>
         </div>
   <div id="toast" class="toast hidden"></div>
 
-        <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
+        <!-- Multiplayer modal -->
+        <div id="mpModal" class="modal hidden" role="dialog" aria-modal="true">
+          <div class="modal-panel">
+            <header><h2>Multiplayer</h2><button id="closeMpModal" class="close-btn" aria-label="Close">×</button></header>
+            <div class="form-grid">
+              <label>Server URL<input id="mpServerUrl" placeholder="wss://your-relay.example.com" /></label>
+              <label>Room Code<input id="mpRoomCode" placeholder="my-room-123" /></label>
+              <label>Your Name<input id="mpName" placeholder="Player" /></label>
+              <div class="row-btns">
+                <button id="mpDoHost" class="accent-btn">Host as GM</button>
+                <button id="mpDoJoin" class="mini-btn">Join</button>
+              </div>
+              <small>Tip: As GM, start the server locally and click Host. Share Room Code and your Server URL to players.</small>
+            </div>
+          </div>
+        </div>
+
+  <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
           <div class="modal-panel">
             <header><h2>Map Controls</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
             <ul>
@@ -196,6 +239,32 @@
             </div>
             <ol id="initiativeList"></ol>
           </div>
+          <div class="token-panel" id="tokenInspector">
+            <div class="panel-head">Token Inspector</div>
+            <div class="tp-body">
+              <label>Name<input id="tiName" placeholder="token name" /></label>
+              <label>Type
+                <select id="tiType">
+                  <option value="">Neutral</option>
+                  <option value="player">Player</option>
+                  <option value="enemy">Enemy</option>
+                </select>
+              </label>
+              <label>HP<input id="tiHP" type="number" min="0" step="1" placeholder="" /></label>
+              <label>Vision (px)<input id="tiVision" type="number" min="0" step="10" placeholder="180" /></label>
+            </div>
+          </div>
+          <div class="scene-panel hidden" id="scenePanel">
+            <div class="panel-head">Scenes
+              <div class="panel-actions">
+                <button id="scenePanelClose" class="mini-btn">Close</button>
+              </div>
+            </div>
+            <ul id="sceneList"></ul>
+            <div class="panel-actions" style="margin-top:8px">
+              <button id="sceneDeleteAllBtn" class="mini-btn danger">Delete All</button>
+            </div>
+          </div>
         </div>
         <p class="map-hint">Drag tokens. Walls mode to draw barriers. Vision Auto reveals based on token radius (right‑click token → Set Vision). Ruler (M) to measure. Export to save board JSON.</p>
       </section>
@@ -217,6 +286,7 @@
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
     </main>
   </div>
+  <button id="helpFab" class="help-fab" title="Help">?</button>
   <div id="sheetModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-panel">
       <header><h2>Sheet Source</h2><button id="closeSheetModal" class="close-btn" aria-label="Close">×</button></header>
@@ -240,6 +310,25 @@
       </div>
     </div>
   </div>
+  <!-- Landing: Table selection (DnDex) -->
+  <div id="welcomeModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-panel" style="max-width:520px">
+      <header><h2>Welcome to DnDex</h2></header>
+      <div class="welcome-simple">
+        <label>Your Name<input id="wlName" placeholder="GM or Player" /></label>
+        <button id="wlCreate" class="accent-btn">Create a Table (GM)</button>
+        <div class="or-sep">or</div>
+        <label>Invite Link<input id="wlInvite" placeholder="Paste a DnDex invite link here" /></label>
+        <button id="wlJoin" class="mini-btn">Join</button>
+        <button id="wlSolo" class="mini-btn">Solo Mode</button>
+        <label>Relay URL (saved)
+          <input id="wlServerInline" placeholder="wss://your-relay.example.com" />
+        </label>
+        <button id="wlAdvanced" class="mini-btn" title="Open full options">Advanced…</button>
+        <small style="opacity:.75">Create generates a room code and uses your saved relay (wss://). Join works by pasting an invite link.</small>
+      </div>
+    </div>
+  </div>
   <div id="dropOverlay" class="drop-overlay hidden" title="Click to dismiss">Drag & release a CSV/XLSX here to load</div>
   <script src="js/config.js"></script>
   <script src="js/persist.js"></script>
@@ -247,5 +336,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/compendium.js"></script>
+  <script>if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }</script>
 </body>
 </html>

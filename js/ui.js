@@ -45,10 +45,10 @@ async function init() {
 }
 
 function sheetConfigured() {
-  try {
-    const u = window.getSheetUrl();
-    return /^https?:\/\//i.test(u) && !u.includes('PUT_PUBLISHED');
-  } catch { return false; }
+  try{
+    const url = new URL(mp.server);
+    if(url.protocol!=='ws:' && url.protocol!=='wss:'){ toast('Server URL must start with ws:// or wss://'); return; }
+  }catch{ toast('Invalid server URL'); return; }
 }
 
 function promptForSheet() {
@@ -90,6 +90,18 @@ function wireNav() {
     });
   });
   document.getElementById('themeSwitch').addEventListener('click', toggleTheme);
+  const leanT = document.getElementById('leanToggle');
+  if(leanT){
+    const v=loadPref('lean','false');
+    leanT.checked = v==='true';
+    document.body.classList.toggle('lean', leanT.checked);
+    leanT.addEventListener('change', ()=>{
+      savePref('lean', leanT.checked?'true':'false');
+      document.body.classList.toggle('lean', leanT.checked);
+      if(leanT.checked){ document.querySelector(".nav-btn[data-view='map']")?.click(); }
+    });
+  }
+  document.getElementById('resetAppBtn')?.addEventListener('click', resetApp);
 }
 
 function toggleTheme() {
@@ -347,7 +359,20 @@ function groupBy(arr, fn) {
 }
 
 function autoLoop() {
-  setInterval(()=> { if (els.autoToggle.checked) reload(); }, AUTO_REFRESH_MS);
+  setInterval(()=> {
+    // Pause auto refresh while Map view is active to avoid stutter
+    const activeView = document.querySelector('.nav-btn.active')?.dataset.view;
+    if (activeView === 'map') return;
+    if (els.autoToggle.checked) reload();
+  }, AUTO_REFRESH_MS);
+}
+
+function resetApp(){
+  if(!confirm('Reset clears local data (tokens, walls, templates, fog, scenes, sheet cache). Continue?')) return;
+  try{
+    ['mapTokens','mapWalls','mapTemplates','mapInitiative','boardSettings','fogData','wipLimits','movesStore','mp:server','mp:room','mp:name','mp:isGM'].forEach(k=> localStorage.removeItem(k));
+  }catch{}
+  location.reload();
 }
 
 function markDirty() {
@@ -402,7 +427,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('addTokensBtn');
   const clearBtn = document.getElementById('clearTokensBtn');
   if (addBtn) addBtn.addEventListener('click', addTokensFromFiltered);
-  if (clearBtn) clearBtn.addEventListener('click', () => { document.getElementById('tokenLayer').innerHTML=''; saveTokens(); });
+  if (clearBtn) clearBtn.addEventListener('click', () => { 
+    if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
+    document.getElementById('tokenLayer').innerHTML='';
+    saveTokens();
+    if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokensClear'}});
+  });
   const gridInput = document.getElementById('gridSizeInput');
   if (gridInput){ gridInput.value = loadPref('gridSize', gridInput.value); gridInput.addEventListener('change', (e)=> { savePref('gridSize', e.target.value); refreshMap(); }); }
   const snapT = document.getElementById('snapToggle'); if(snapT){ const val = loadPref('snapToggle', 'true'); snapT.checked = val==='true'; snapT.addEventListener('change', ()=> savePref('snapToggle', snapT.checked?'true':'false')); }
@@ -411,17 +441,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addSingleTokenBtn')?.addEventListener('click', ()=> newAdHocToken());
   setupFog();
   loadTokens();
+  // Ensure existing tokens have stable IDs
+  try{ ensureTokenIds && ensureTokenIds(); }catch{}
   // Layer toggles
   document.getElementById('showFogToggle')?.addEventListener('change', e=> document.getElementById('fogCanvas').style.display = e.target.checked? '' : 'none');
   document.getElementById('showWallsToggle')?.addEventListener('change', e=> document.getElementById('wallsCanvas').style.display = e.target.checked? '' : 'none');
   document.getElementById('showTemplatesToggle')?.addEventListener('change', e=> document.getElementById('overlayCanvas').style.display = e.target.checked? '' : 'none');
-  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')) { walls=[]; persistWalls(); drawWalls(); toast('Walls cleared'); } });
-  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')) { templates=[]; persistTemplates(); drawTemplates(); toast('Templates cleared'); } });
+  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')) { walls=[]; persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Walls cleared'); } });
+  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')) { templates=[]; persistTemplates(); drawTemplates(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'templates', templates}}); toast('Templates cleared'); } });
 });
 
 function addTokensFromFiltered() {
   const layer = document.getElementById('tokenLayer');
   if (!layer) return;
+  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
   const state = window.__getState();
   layer.innerHTML='';
   const { headers } = state;
@@ -454,10 +487,17 @@ function addTokensFromFiltered() {
     x += step; if (x>maxRow) { x=80; y+=step; }
   });
   refreshMap();
+  // Persist and broadcast full token set
+  saveTokens();
+  if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){
+    const tokens=[...document.querySelectorAll('.token')].map(t=>({id:t.dataset.id||uid(),x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',hp:t.dataset.hp||'',vision:t.dataset.vision||'',bg:t.style.backgroundImage||''}));
+    broadcast({type:'op', op:{kind:'tokensSet', tokens}});
+  }
 }
 
 function dragToken(e) {
   const token = e.target;
+  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
   let sx = e.clientX, sy = e.clientY;
   const selected = [...document.querySelectorAll('.token.selected')];
   const moving = selected.length>1 && selected.includes(token) ? selected : [token];
@@ -472,13 +512,21 @@ function dragToken(e) {
     const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
     if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
   // Optional collide with walls: simple revert if token crosses a wall segment center area
-  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); } }
-    saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
+  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){
+      // try to slide to a nearby free spot
+      moving.forEach(s=> { const alt=findSlidePosition(parseFloat(s.style.left), parseFloat(s.style.top), 32); if(alt){ s.style.left=alt.x+'px'; s.style.top=alt.y+'px'; } });
+      // if still blocked, revert
+      if(moving.some(t=> tokenHitsWall(t))){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); }
+    } }
+  saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
+  // Broadcast moves to peers
+  moving.forEach(t=> { if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'move', id:(t.dataset.id||''), x:parseFloat(t.style.left), y:parseFloat(t.style.top)}}); });
   }
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 }
 
 function tokenHitsWall(tok){ const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); const r=30; return walls.some(w=> distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2) < r); }
+function findSlidePosition(x,y,range){ const dirs=[[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]; for(let d=8; d<=range; d+=8){ for(const v of dirs){ const nx=x+v[0]*d, ny=y+v[1]*d; if(!walls.some(w=> distPointToSeg(nx,ny,w.x1,w.y1,w.x2,w.y2) < 30)) return {x:nx,y:ny}; } } return null; }
 function distPointToSeg(px,py,x1,y1,x2,y2){ const A=px-x1,B=py-y1,C=x2-x1,D=y2-y1; const dot=A*C+B+D; const len_sq=C*C+D*D; let t = len_sq? ((A*C)+(B*D))/len_sq : 0; t=Math.max(0,Math.min(1,t)); const xx=x1+t*C, yy=y1+t*D; const dx=px-xx, dy=py-yy; return Math.sqrt(dx*dx+dy*dy); }
 
 function testImage(src, cb) {
@@ -494,12 +542,18 @@ function testImage(src, cb) {
 function selectToken(t){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); t.classList.add('selected'); }
 function newAdHocToken(){
   const layer = document.getElementById('tokenLayer'); if(!layer) return;
+  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
   const name = prompt('Token label (optional):','');
   const div = document.createElement('div');
   div.className='token';
   div.style.left='100px'; div.style.top='100px';
   div.title = name || 'token';
+  div.dataset.id = uid();
   layer.appendChild(div); saveTokens();
+  if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){
+    const payload = { id:div.dataset.id, x:100, y:100, title:div.title, type:div.dataset.type||'', hp:div.dataset.hp||'', vision:div.dataset.vision||'', bg:div.style.backgroundImage||'' };
+    broadcast({type:'op', op:{kind:'tokenAdd', token: payload}});
+  }
 }
 function saveTokens(){
   const layer = document.getElementById('tokenLayer'); if(!layer) return;
@@ -509,16 +563,18 @@ function saveTokens(){
 function loadTokens(){
   try { const raw = localStorage.getItem('mapTokens'); if(!raw) return; const arr=JSON.parse(raw); const layer=document.getElementById('tokenLayer'); if(!layer) return; layer.innerHTML=''; arr.forEach(o=> { const d=document.createElement('div'); d.className='token'; d.dataset.id=o.id||uid(); d.style.left=o.x+'px'; d.style.top=o.y+'px'; d.title=o.title; if(o.type) d.dataset.type=o.type; if(o.bg) d.style.backgroundImage=o.bg; if(o.hp) d.dataset.hp=o.hp; if(o.vision) d.dataset.vision=o.vision; layer.appendChild(d); updateTokenBadges(d); }); } catch {}
 }
+// Ensure tokens have stable IDs for multiplayer references
+function ensureTokenIds(){ const layer=document.getElementById('tokenLayer'); if(!layer) return; let changed=false; [...layer.querySelectorAll('.token')].forEach(t=> { if(!t.dataset.id){ t.dataset.id = uid(); changed=true; } }); if(changed) saveTokens(); }
 
 let fogCtx, fogMode='none';
 function setupFog(){
   const canvas = document.getElementById('fogCanvas'); if(!canvas) return;
   fogCtx = canvas.getContext('2d');
-  document.getElementById('fogFullBtn')?.addEventListener('click', ()=> { pushFogHistory(); coverFog(); fogMode='none'; saveFog(); });
-  document.getElementById('fogClearBtn')?.addEventListener('click', ()=> { pushFogHistory(); clearFog(); fogMode='none'; saveFog(); });
-  document.getElementById('fogRevealBtn')?.addEventListener('click', ()=> { fogMode='reveal'; });
+  document.getElementById('fogFullBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } pushFogHistory(); coverFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogClearBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } pushFogHistory(); clearFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogRevealBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } fogMode='reveal'; });
   coverFog(); loadFog();
-  canvas.addEventListener('mousedown', e=> { if(fogMode==='reveal'){ pushFogHistory(); revealAt(e.offsetX,e.offsetY,true); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY,false); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
+  canvas.addEventListener('mousedown', e=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )) return; if(fogMode==='reveal'){ pushFogHistory(); revealAt(e.offsetX,e.offsetY,true); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY,false); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
 }
 function coverFog(){ if(!fogCtx) return; fogCtx.globalCompositeOperation='source-over'; fogCtx.fillStyle='rgba(0,0,0,0.85)'; fogCtx.fillRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
 function clearFog(){ if(!fogCtx) return; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
@@ -534,6 +590,11 @@ let initiative = { order: [], current: 0 }; // order: [{id, name}]
 let multiSelect = null; // {x1,y1,x2,y2}
 let boardSettings = { visionAuto:true, bgImage:null, gmMode:false };
 let fogHistory = [];
+// Multiplayer session state
+let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)) };
+
+function saveMpPrefs(){ try{ localStorage.setItem('mp:server', mp.server||''); localStorage.setItem('mp:room', mp.room||''); localStorage.setItem('mp:name', mp.name||''); localStorage.setItem('mp:isGM', mp.isGM? '1':''); }catch{} }
+function loadMpPrefs(){ try{ return { server: localStorage.getItem('mp:server')||'', room: localStorage.getItem('mp:room')||'', name: localStorage.getItem('mp:name')||'', isGM: (localStorage.getItem('mp:isGM')==='1') }; }catch{ return {server:'',room:'',name:'',isGM:false}; } }
 
 // Utility IDs
 function uid(){ return Math.random().toString(36).slice(2,9); }
@@ -564,6 +625,21 @@ function wireAdvancedMap(){
   document.getElementById('exportImageBtn')?.addEventListener('click', exportPngSnapshot);
   document.getElementById('mapHelpBtn')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.remove('hidden'));
   document.getElementById('closeMapHelp')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.add('hidden'));
+  document.getElementById('helpFab')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.remove('hidden'));
+  // Simple Mode
+  const sT=document.getElementById('simpleModeToggle'); if(sT){ const val=loadPref('simpleMode','true'); sT.checked=val==='true'; document.body.classList.toggle('simple-mode', sT.checked); sT.addEventListener('change', ()=> { savePref('simpleMode', sT.checked?'true':'false'); document.body.classList.toggle('simple-mode', sT.checked); }); }
+  // Perf/Lock/Cursors toggles
+  const pT=document.getElementById('perfModeToggle'); if(pT){ const v=loadPref('perfMode','false'); pT.checked = v==='true'; pT.addEventListener('change', ()=> savePref('perfMode', pT.checked?'true':'false')); }
+  const lT=document.getElementById('lockBoardToggle'); if(lT){ const v=loadPref('lockBoard','false'); lT.checked=v==='true'; document.body.classList.toggle('locked', lT.checked); lT.addEventListener('change', ()=> { savePref('lockBoard', lT.checked?'true':'false'); document.body.classList.toggle('locked', lT.checked); }); }
+  const cT=document.getElementById('cursorsToggle'); if(cT){ const v=loadPref('cursors','true'); cT.checked=v!=='false'; cT.addEventListener('change', ()=> { savePref('cursors', cT.checked?'true':'false'); document.getElementById('cursorLayer').style.display = cT.checked? '' : 'none'; }); document.getElementById('cursorLayer').style.display = cT.checked? '' : 'none'; }
+  // Multiplayer controls
+  document.getElementById('hostGameBtn')?.addEventListener('click', openMpModalHost);
+  document.getElementById('joinGameBtn')?.addEventListener('click', openMpModalJoin);
+  document.getElementById('shareGameBtn')?.addEventListener('click', copyJoinLink);
+  document.getElementById('playersEditToggle')?.addEventListener('change', e=> { mp.allowEdits=!!e.target.checked; broadcast({type:'perm', allowEdits: mp.allowEdits}); });
+  document.getElementById('closeMpModal')?.addEventListener('click', ()=> document.getElementById('mpModal')?.classList.add('hidden'));
+  document.getElementById('mpDoHost')?.addEventListener('click', ()=> startMp(true));
+  document.getElementById('mpDoJoin')?.addEventListener('click', ()=> startMp(false));
   // Initiative
   document.getElementById('initAddBtn')?.addEventListener('click', addSelectedToInitiative);
   document.getElementById('initPrevBtn')?.addEventListener('click', ()=> cycleInitiative(-1));
@@ -576,6 +652,22 @@ function wireAdvancedMap(){
   stage.addEventListener('contextmenu', onContextMenu);
   window.addEventListener('click', hideContextMenu);
   computeVisionAuto();
+  // Auto-join via hash
+  const j=parseJoinHash(); if(j){
+    const prefs = loadMpPrefs();
+    mp.server = j.server; mp.room = j.room; mp.name = prefs.name || 'Player'; mp.isGM = false; mp.connected=false;
+    connectWs(); toast('Joining room '+mp.room);
+  }
+  // Show welcome landing on first load
+  initWelcomeLanding();
+  // Render banner initially
+  renderSessionBanner();
+  // Wire live cursor sync
+  wireLiveCursors();
+  // Token inspector inputs
+  wireTokenInspector();
+  // Scenes
+  wireScenes();
 }
 
 // ----- Walls -----
@@ -585,12 +677,13 @@ function onStageMouseDown(e){
   const stage = document.getElementById('mapStage');
   if(e.target.closest('.token') || e.target.closest('.token-context')) return;
   if(wallMode){
+    if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
     const rect = stage.getBoundingClientRect();
     const x = e.clientX - rect.left; const y = e.clientY - rect.top;
-  // Alt+click to delete nearest wall
-  if(e.altKey){ const idx = findNearestWall(x,y,10); if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); toast('Wall removed'); } return; }
+    // Alt+click to delete nearest wall
+  if(e.altKey){ const idx = findNearestWall(x,y,10); if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Wall removed'); } return; }
     if(!wallTempPoint){ wallTempPoint={x,y}; }
-    else { walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x,y2:y}); wallTempPoint=null; persistWalls(); drawWalls(); }
+  else { walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x,y2:y}); wallTempPoint=null; persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); }
     e.preventDefault(); return;
   }
   // Multi-select start (Shift)
@@ -606,7 +699,11 @@ function loadWalls(){ try{ const raw=localStorage.getItem('mapWalls'); if(raw) w
 // ----- Templates (AoE) -----
 function addTemplate(kind){ const t={id:uid(),kind,x:300,y:300,w:160,h:160,angle:0}; templates.push(t); persistTemplates(); drawTemplates(); }
 function drawTemplates(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height);
-  templates.forEach(t=> { ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.angle*Math.PI/180); ctx.strokeStyle='rgba(79,141,255,0.9)'; ctx.fillStyle='rgba(79,141,255,0.18)'; ctx.lineWidth=2; if(t.kind==='circle'){ ctx.beginPath(); ctx.arc(0,0,t.w/2,0,Math.PI*2); ctx.fill(); ctx.stroke(); } else if(t.kind==='cone'){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(t.w, -t.h/2); ctx.lineTo(t.w, t.h/2); ctx.closePath(); ctx.fill(); ctx.stroke(); } else if(t.kind==='line'){ ctx.beginPath(); ctx.rect(0,-t.h/2,t.w,t.h); ctx.fill(); ctx.stroke(); } ctx.restore(); });
+  templates.forEach(t=> { ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.angle*Math.PI/180); ctx.strokeStyle='rgba(79,141,255,0.9)'; ctx.fillStyle='rgba(79,141,255,0.18)'; ctx.lineWidth=2; if(t.kind==='circle'){ ctx.beginPath(); ctx.arc(0,0,t.w/2,0,Math.PI*2); ctx.fill(); ctx.stroke(); } else if(t.kind==='cone'){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(t.w, -t.h/2); ctx.lineTo(t.w, t.h/2); ctx.closePath(); ctx.fill(); ctx.stroke(); } else if(t.kind==='line'){ ctx.beginPath(); ctx.rect(0,-t.h/2,t.w,t.h); ctx.fill(); ctx.stroke(); } 
+    // handles: resize bottom-right, rotate above
+    ctx.fillStyle='rgba(79,141,255,0.95)'; const hx=(t.kind==='circle'? (t.w/2) : t.w), hy=(t.kind==='circle'? (t.w/2) : t.h/2); ctx.beginPath(); ctx.arc(hx,hy,5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(79,141,255,0.75)'; const ry=-(t.kind==='circle'? (t.w/2) : t.h/2)-12; ctx.beginPath(); ctx.arc(0,ry,4,0,Math.PI*2); ctx.fill();
+    ctx.restore(); });
   // Enable pointer events based on presence
   c.style.pointerEvents = templates.length ? 'auto' : 'none';
 }
@@ -619,27 +716,27 @@ let selectedTemplateId=null; let templateDragMode=null; // 'move'|'resize'
           const ang=-t.angle*Math.PI/180; const lx=dx*Math.cos(ang)-dy*Math.sin(ang); const ly=dx*Math.sin(ang)+dy*Math.cos(ang); if(Math.abs(lx)<=t.w && Math.abs(ly)<=t.h) return t; }
       } return null; }
 })();
-function persistTemplates(){ try{ localStorage.setItem('mapTemplates', JSON.stringify(templates)); }catch{} }
+function persistTemplates(){ try{ localStorage.setItem('mapTemplates', JSON.stringify(templates)); }catch{} if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'templates', templates}}); }
 function loadTemplates(){ try{ const raw=localStorage.getItem('mapTemplates'); if(raw) templates=JSON.parse(raw); }catch{} }
 
 // ----- Initiative -----
-function addSelectedToInitiative(){ const list=[...document.querySelectorAll('.token.selected')]; list.forEach(t=> { const id=t.dataset.id||(t.dataset.id=uid()); if(!initiative.order.some(o=>o.id===id)) initiative.order.push({id,name:t.title||'token'}); }); persistInitiative(); renderInitiative(); }
-function renderInitiative(){ const el=document.getElementById('initiativeList'); if(!el) return; el.innerHTML=''; initiative.order.forEach((o,i)=> { const li=document.createElement('li'); li.textContent=(i+1)+'. '+o.name; if(i===initiative.current) li.classList.add('active'); const del=document.createElement('button'); del.textContent='✕'; del.addEventListener('click',()=> { initiative.order=initiative.order.filter(x=>x!==o); if(initiative.current>=initiative.order.length) initiative.current=0; persistInitiative(); renderInitiative(); }); li.appendChild(del); el.appendChild(li); }); }
-function cycleInitiative(dir){ if(!initiative.order.length) return; initiative.current=(initiative.current+dir+initiative.order.length)%initiative.order.length; renderInitiative(); highlightActiveToken(); }
+function addSelectedToInitiative(){ const list=[...document.querySelectorAll('.token.selected')]; const added=[]; list.forEach(t=> { const id=t.dataset.id||(t.dataset.id=uid()); if(!initiative.order.some(o=>o.id===id)){ const item={id,name:t.title||'token'}; initiative.order.push(item); added.push(item); } }); persistInitiative(); renderInitiative(); if(added.length && !mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'initAdd', items:added}}); }
+function renderInitiative(){ const el=document.getElementById('initiativeList'); if(!el) return; el.innerHTML=''; initiative.order.forEach((o,i)=> { const li=document.createElement('li'); li.textContent=(i+1)+'. '+o.name; if(i===initiative.current) li.classList.add('active'); const del=document.createElement('button'); del.textContent='✕'; del.addEventListener('click',()=> { const removedId=o.id; initiative.order=initiative.order.filter(x=>x!==o); if(initiative.current>=initiative.order.length) initiative.current=0; persistInitiative(); renderInitiative(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'initRemove', id:removedId}}); }); li.appendChild(del); el.appendChild(li); }); }
+function cycleInitiative(dir){ if(!initiative.order.length) return; initiative.current=(initiative.current+dir+initiative.order.length)%initiative.order.length; renderInitiative(); highlightActiveToken(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'initCycle', dir}}); }
 function highlightActiveToken(){ const cur=initiative.order[initiative.current]; document.querySelectorAll('.token').forEach(t=> t.classList.remove('highlight-move')); if(!cur) return; const tok=[...document.querySelectorAll('.token')].find(t=> t.dataset.id===cur.id); if(tok) tok.classList.add('highlight-move'); }
 function persistInitiative(){ try{ localStorage.setItem('mapInitiative', JSON.stringify(initiative)); }catch{} }
 function loadInitiative(){ try{ const raw=localStorage.getItem('mapInitiative'); if(raw) initiative=JSON.parse(raw); }catch{} }
 
 // ----- Vision (simplified radial reveal) -----
-function computeVisionAuto(){ if(!boardSettings.visionAuto) return; const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; pushFogHistory(); coverFog(); fogCtx.globalCompositeOperation='destination-out'; [...document.querySelectorAll('.token')].forEach(t=> revealVisionForToken(t)); saveFog(); }
+let _visionTmr=null; function computeVisionAuto(){ if(!boardSettings.visionAuto) return; clearTimeout(_visionTmr); const perf = loadPref('perfMode','false')==='true'; const delay = perf? 250 : 60; _visionTmr = setTimeout(()=>{ const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; pushFogHistory(); coverFog(); fogCtx.globalCompositeOperation='destination-out'; [...document.querySelectorAll('.token')].forEach(t=> revealVisionForToken(t)); saveFog(); }, delay); }
 function revealVisionForToken(t){ const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); const poly = computeLOS(x,y,r); drawPoly(fogCtx, poly, true); }
-function computeLOS(cx,cy,r){ // raycast to walls
-  const pts=[]; const angles=[]; walls.forEach(w=> { const a1=Math.atan2(w.y1-cy,w.x1-cx); const a2=Math.atan2(w.y2-cy,w.x2-cx); angles.push(a1-0.0001,a1,a1+0.0001,a2-0.0001,a2,a2+0.0001); }); for(let a=0;a<Math.PI*2;a+=Math.PI/90) angles.push(a); const uniq=[...new Set(angles)]; uniq.sort((a,b)=>a-b); uniq.forEach(theta=> { const end = castRay(cx,cy,theta,r); pts.push(end); }); return pts; }
-function castRay(x,y,ang,r){ const dx=Math.cos(ang), dy=Math.sin(ang); let minT=1e9; let hitX=x+dx*r, hitY=y+dy*r; walls.forEach(w=> { const res = segIntersect(x,y,dx,dy, w.x1,w.y1,w.x2,w.y2); if(res && res.t<minT && res.t>=0 && res.t<=r){ minT=res.t; hitX=x+dx*res.t; hitY=y+dy*res.t; } }); return {x:hitX,y:hitY}; }
+function computeLOS(cx,cy,r){ const near = walls.filter(w=> boxDistToPoint(w, cx, cy) <= r+80); const pts=[]; const angles=[]; near.forEach(w=> { const a1=Math.atan2(w.y1-cy,w.x1-cx); const a2=Math.atan2(w.y2-cy,w.x2-cx); angles.push(a1-0.0005,a1,a1+0.0005,a2-0.0005,a2,a2+0.0005); }); for(let a=0;a<Math.PI*2;a+=Math.PI/180) angles.push(a); const uniq=[...new Set(angles.map(a=> +a.toFixed(4)))]; uniq.sort((a,b)=>a-b); uniq.forEach(theta=> { const end = castRay(cx,cy,theta,r,near); pts.push(end); }); return pts; }
+function castRay(x,y,ang,r,segments){ const dx=Math.cos(ang), dy=Math.sin(ang); let minT=1e9; let hitX=x+dx*r, hitY=y+dy*r; segments.forEach(w=> { const res = segIntersect(x,y,dx,dy, w.x1,w.y1,w.x2,w.y2); if(res && res.t<minT && res.t>=0 && res.t<=r){ minT=res.t; hitX=x+dx*res.t; hitY=y+dy*res.t; } }); return {x:hitX,y:hitY}; }
+function boxDistToPoint(w,px,py){ const minx=Math.min(w.x1,w.x2), maxx=Math.max(w.x1,w.x2); const miny=Math.min(w.y1,w.y2), maxy=Math.max(w.y1,w.y2); const nx=Math.max(minx,Math.min(px,maxx)); const ny=Math.max(miny,Math.min(py,maxy)); const dx=nx-px, dy=ny-py; return Math.hypot(dx,dy); }
 function segIntersect(x,y,dx,dy, x1,y1,x2,y2){ // ray (x,y)+(t)(dx,dy) with segment (x1,y1)-(x2,y2)
   const sx=x2-x1, sy=y2-y1; const denom = dx*sy - dy*sx; if(Math.abs(denom) < 1e-6) return null; const t = ((x1 - x)*sy - (y1 - y)*sx)/denom; const u = ((x1 - x)*dy - (y1 - y)*dx)/denom; if(t>=0 && u>=0 && u<=1) return {t,u}; return null; }
 function drawPoly(ctx, pts, close){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y); if(close) ctx.closePath(); ctx.fill(); }
-function setTokenVision(token, radius){ token.dataset.vision=radius; if(boardSettings.visionAuto) computeVisionAuto(); }
+function setTokenVision(token, radius){ token.dataset.vision=radius; saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(token.dataset.id||''), fields:{vision: String(radius)}}}); if(boardSettings.visionAuto) computeVisionAuto(); }
 
 // ----- Context Menu -----
 function onContextMenu(e){ const tok = e.target.closest('.token'); if(!tok){ return; }
@@ -652,10 +749,10 @@ function showContextMenu(x,y,token){ hideContextMenu(); const menu=document.crea
     {k:'type_neutral',label:'Set Type: Neutral'},
     {k:'dup',label:'Duplicate'},
     {k:'del',label:'Delete Token'}
-  ].map(o=>`<li data-k="${o.k}">${o.label}</li>`).join('')+'</ul>'; document.body.appendChild(menu); positionMenu(menu,x,y); menu.addEventListener('click', ev=> { const li=ev.target.closest('li'); if(!li) return; const k=li.dataset.k; if(k==='vision'){ const r=prompt('Vision radius px:', token.dataset.vision||'180'); if(r) setTokenVision(token, parseInt(r)||0); } else if(k==='hp'){ const hp=prompt('HP value:', token.dataset.hp||''); if(hp!==null){ token.dataset.hp=hp; updateTokenBadges(token); saveTokens(); } } else if(k==='dup'){ duplicateToken(token); } else if(k==='del'){ token.remove(); saveTokens(); } else if(k==='type_player'){ token.dataset.type='player'; saveTokens(); } else if(k==='type_enemy'){ token.dataset.type='enemy'; saveTokens(); } else if(k==='type_neutral'){ delete token.dataset.type; saveTokens(); } hideContextMenu(); }); }
+  ].map(o=>`<li data-k="${o.k}">${o.label}</li>`).join('')+'</ul>'; document.body.appendChild(menu); positionMenu(menu,x,y); menu.addEventListener('click', ev=> { const li=ev.target.closest('li'); if(!li) return; if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const k=li.dataset.k; if(k==='vision'){ const r=prompt('Vision radius px:', token.dataset.vision||'180'); if(r) setTokenVision(token, parseInt(r)||0); } else if(k==='hp'){ const hp=prompt('HP value:', token.dataset.hp||''); if(hp!==null){ token.dataset.hp=hp; updateTokenBadges(token); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(token.dataset.id||''), fields:{hp:String(hp)}}}); } } else if(k==='dup'){ duplicateToken(token); } else if(k==='del'){ const id=(token.dataset.id||''); token.remove(); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenDel', ids:[id]}}); } else if(k==='type_player'){ token.dataset.type='player'; saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(token.dataset.id||''), fields:{type:'player'}}}); } else if(k==='type_enemy'){ token.dataset.type='enemy'; saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(token.dataset.id||''), fields:{type:'enemy'}}}); } else if(k==='type_neutral'){ delete token.dataset.type; saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(token.dataset.id||''), fields:{type:''}}}); } hideContextMenu(); }); }
 function positionMenu(menu,x,y){ const vw=window.innerWidth,vh=window.innerHeight; const r=menu.getBoundingClientRect(); if(x+r.width>vw) x=vw-r.width-10; if(y+r.height>vh) y=vh-r.height-10; menu.style.left=x+'px'; menu.style.top=y+'px'; }
 function hideContextMenu(){ document.getElementById('tokenContextMenu')?.remove(); }
-function duplicateToken(tok){ const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); saveTokens(); }
+function duplicateToken(tok){ if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.dataset.id = uid(); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); updateTokenBadges(d); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){ const payload={ id:d.dataset.id, x:parseFloat(d.style.left), y:parseFloat(d.style.top), title:d.title, type:d.dataset.type||'', hp:d.dataset.hp||'', vision:d.dataset.vision||'', bg:d.style.backgroundImage||'' }; broadcast({type:'op', op:{kind:'tokenAdd', token: payload}}); } }
 function updateTokenBadges(tok){ let stack=tok.querySelector('.badge-stack'); if(!stack){ stack=document.createElement('div'); stack.className='badge-stack'; tok.appendChild(stack); } stack.innerHTML=''; if(tok.dataset.hp){ const hp=document.createElement('div'); hp.className='hp-badge'; hp.textContent=tok.dataset.hp; stack.appendChild(hp); } }
 
 // ----- Ruler -----
@@ -664,12 +761,32 @@ function startRulerMode(){ rulerActive=true; document.getElementById('rulerBtn')
 function rulerDown(e){ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); rulerStart={x:e.clientX-rect.left,y:e.clientY-rect.top}; rulerEl=document.createElement('div'); rulerEl.className='ruler-line'; stage.appendChild(rulerEl); function mv(ev){ const grid = +document.getElementById('gridSizeInput')?.value||50; const snap = document.getElementById('snapToggle')?.checked; const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const ex=snap? Math.round(rx/grid)*grid : rx; const ey=snap? Math.round(ry/grid)*grid : ry; const sx=snap? Math.round(rulerStart.x/grid)*grid : rulerStart.x; const sy=snap? Math.round(rulerStart.y/grid)*grid : rulerStart.y; const dx=ex-sx, dy=ey-sy; const len=Math.sqrt(dx*dx+dy*dy); const squares=(len/grid).toFixed(1); rulerEl.textContent=`${len.toFixed(0)} px • ${squares} squares`; const left=Math.min(ex,sx), top=Math.min(ey,sy); Object.assign(rulerEl.style,{left:left+'px',top:top+'px',width:Math.abs(dx)+'px',height:Math.abs(dy)+'px'}); } function up(){ stage.removeEventListener('mousemove',mv); stage.removeEventListener('mouseup',up); setTimeout(()=>{ rulerEl?.remove(); rulerActive=false; document.getElementById('rulerBtn')?.classList.remove('active'); },1500); } stage.addEventListener('mousemove',mv); stage.addEventListener('mouseup',up); }
 
 // ----- Background Image -----
-function handleBgUpload(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { boardSettings.bgImage=ev.target.result; persistBoardSettings(); applyBoardBackground(); }; reader.readAsDataURL(file); e.target.value=''; }
+function handleBgUpload(e){ const file=e.target.files[0]; if(!file) return; if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.target.value=''; return; } const reader=new FileReader(); reader.onload=ev=> { boardSettings.bgImage=ev.target.result; persistBoardSettings(); applyBoardBackground(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'bg', data: boardSettings.bgImage}}); }; reader.readAsDataURL(file); e.target.value=''; }
 function applyBoardBackground(){ const c=document.getElementById('battleMap'); if(!c) return; if(boardSettings.bgImage){ c.style.backgroundImage=`url(${boardSettings.bgImage})`; c.parentElement.classList.add('background-image'); } else { c.style.backgroundImage=''; c.parentElement.classList.remove('background-image'); } }
 
 // ----- Export / Import -----
 function exportBoardState(){ const payload={ tokens:[...document.querySelectorAll('.token')].map(t=>({x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',hp:t.dataset.hp||'',vision:t.dataset.vision||'',bg:t.style.backgroundImage||''})), walls, templates, initiative, boardSettings, fog: localStorage.getItem('fogData')||null }; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.download='board-state.json'; a.href=URL.createObjectURL(blob); a.click(); }
 function importBoardState(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { try{ const data=JSON.parse(ev.target.result); if(data.tokens){ localStorage.setItem('mapTokens', JSON.stringify(data.tokens)); loadTokens(); } if(data.walls){ walls=data.walls; persistWalls(); drawWalls(); } if(data.templates){ templates=data.templates; persistTemplates(); drawTemplates(); } if(data.initiative){ initiative=data.initiative; persistInitiative(); renderInitiative(); } if(data.boardSettings){ boardSettings=data.boardSettings; persistBoardSettings(); applyBoardBackground(); } if(data.fog){ localStorage.setItem('fogData', data.fog); loadFog(); } computeVisionAuto(); }catch(err){ alert('Import failed: '+err.message); } finally { e.target.value=''; }; }; reader.readAsText(file); }
+
+// ----- Scenes (save/load snapshots) -----
+function wireScenes(){ const sel=document.getElementById('sceneSelect'); const saveB=document.getElementById('sceneSaveBtn'); const loadB=document.getElementById('sceneLoadBtn'); const manageB=document.getElementById('sceneManageBtn'); if(!sel||!saveB||!loadB||!manageB) return;
+  const listEl=document.getElementById('sceneList'); const panel=document.getElementById('scenePanel'); const close=document.getElementById('scenePanelClose'); const delAll=document.getElementById('sceneDeleteAllBtn');
+  function loadScenes(){ try{ return JSON.parse(localStorage.getItem('mapScenes')||'[]'); }catch{ return []; } }
+  function saveScenes(arr){ try{ localStorage.setItem('mapScenes', JSON.stringify(arr)); }catch{} }
+  function refreshSelect(){ const arr=loadScenes(); sel.innerHTML = arr.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join(''); }
+  function refreshPanel(){ if(!panel||!listEl) return; const arr=loadScenes(); listEl.innerHTML=''; arr.forEach((s,i)=>{ const li=document.createElement('li'); li.innerHTML = `<span class="title">${escapeHtml(s.name)}</span><div class="panel-actions"><button class="mini-btn" data-load="${i}">Load</button><button class="mini-btn danger" data-del="${i}">Del</button></div>`; listEl.appendChild(li); }); }
+  refreshSelect();
+  saveB.addEventListener('click', ()=>{ const name=prompt('Scene name:'); if(!name) return; const arr=loadScenes(); arr.push({ name, data: exportStateObj() }); saveScenes(arr); refreshSelect(); });
+  loadB.addEventListener('click', ()=>{ const idx=parseInt(sel.value||'-1'); const arr=loadScenes(); if(idx>=0 && arr[idx]){ importStateObj(arr[idx].data); computeVisionAuto(); }});
+  manageB.addEventListener('click', ()=>{ refreshPanel(); panel?.classList.remove('hidden'); });
+  close?.addEventListener('click', ()=> panel?.classList.add('hidden'));
+  delAll?.addEventListener('click', ()=>{ if(confirm('Delete all scenes?')){ localStorage.removeItem('mapScenes'); refreshSelect(); refreshPanel(); }});
+  listEl?.addEventListener('click', (e)=>{
+    const btn=e.target.closest('button'); if(!btn) return; const arr=loadScenes(); const loadIdx=btn.dataset.load? parseInt(btn.dataset.load): -1; const delIdx=btn.dataset.del? parseInt(btn.dataset.del): -1;
+    if(loadIdx>-1 && arr[loadIdx]){ importStateObj(arr[loadIdx].data); computeVisionAuto(); }
+    if(delIdx>-1){ arr.splice(delIdx,1); saveScenes(arr); refreshSelect(); refreshPanel(); }
+  });
+}
 
 // ----- Persistence helpers -----
 function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
@@ -712,14 +829,12 @@ function getTokenStroke(t){ if(t.dataset.type==='enemy') return '#ff5576'; if(t.
 function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); } t.classList.add('selected'); }
 
 // Keyboard actions
-window.addEventListener('keydown', e=> { if(e.key==='Delete'){ const sel=[...document.querySelectorAll('.token.selected')]; if(sel.length){ sel.forEach(t=> t.remove()); saveTokens(); computeVisionAuto(); } } });
+window.addEventListener('keydown', e=> { if(e.key==='Delete'){ const sel=[...document.querySelectorAll('.token.selected')]; if(sel.length){ if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const ids=sel.map(t=> t.dataset.id||''); sel.forEach(t=> t.remove()); saveTokens(); computeVisionAuto(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenDel', ids}}); } } });
 
 // Helpers and keybinds for walls
 function findNearestWall(x,y,thresh){ let best=-1,bd=1e9; walls.forEach((w,i)=>{ const d=distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2); if(d<bd){ bd=d; best=i; } }); return bd<=thresh? best : -1; }
 let wallsRedo=[];
 window.addEventListener('keydown', e=> { if(e.ctrlKey && (e.key==='z' || e.key==='Z')){ if(walls.length){ wallsRedo.push(walls.pop()); persistWalls(); drawWalls(); toast('Undo wall'); } e.preventDefault(); } else if(e.ctrlKey && (e.key==='y' || e.key==='Y')){ if(wallsRedo.length){ walls.push(wallsRedo.pop()); persistWalls(); drawWalls(); toast('Redo wall'); } e.preventDefault(); } });
-
-
 
 function wireUpload() {
   els.uploadBtn.addEventListener('click', ()=> els.fileInput.click());
@@ -914,4 +1029,258 @@ function updateAdminVisibility(){
   document.querySelectorAll('#movesTable .mini-btn').forEach(b=> { if(/edit|del/i.test(b.textContent)) b.style.display = adminMode? '' : 'none'; });
 }
 
+// ---------------- Multiplayer helpers ----------------
+function openMpModalHost(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); const lbl=document.getElementById('mpRoleLabel'); if(lbl) lbl.textContent='Host (GM)'; }
+function openMpModalJoin(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); const lbl=document.getElementById('mpRoleLabel'); if(lbl) lbl.textContent='Join as Player'; }
+function startMp(asHost){
+  const server=(document.getElementById('mpServerUrl')?.value||'').trim();
+  const room=(document.getElementById('mpRoomCode')?.value||'').trim() || Math.random().toString(36).slice(2,8);
+  const name=(document.getElementById('mpName')?.value||'').trim() || (asHost? 'GM':'Player');
+  if(!server){ toast('Enter server URL (ws:// or wss://)'); return; }
+  mp.server=server; mp.room=room; mp.name=name; mp.isGM=!!asHost; mp.connected=false; saveMpPrefs(); connectWs();
+  document.getElementById('mpModal')?.classList.add('hidden');
+  renderSessionBanner();
+}
+function copyJoinLink(){ if(!mp.server || !mp.room){ toast('Start a session first'); return; } const url=new URL(location.href); url.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`; navigator.clipboard?.writeText(url.toString()).then(()=> toast('Join link copied')).catch(()=> toast('Copy failed'));
+}
+function parseJoinHash(){ try{ const h=location.hash||''; const m=h.match(/#join=([^|]+)\|(.+)/); if(!m) return null; return {server:decodeURIComponent(m[1]), room:decodeURIComponent(m[2])}; }catch{ return null; } }
+function setMpStatus(txt){ const el=document.getElementById('mpStatus'); if(el) el.textContent = txt; renderSessionBanner(); }
+function connectWs(){ try{
+    const url = new URL(mp.server);
+    if(url.protocol!=='ws:' && url.protocol!=='wss:'){ toast('Server must be ws:// or wss://'); return; }
+  }catch{ toast('Invalid server URL'); return; }
+  try{ if(mp.ws){ try{ mp.ws.close(); }catch{} mp.ws=null; } }catch{}
+  const ws = new WebSocket(mp.server);
+  mp.ws = ws; setMpStatus('Connecting…');
+  ws.onopen = ()=>{ mp.connected=true; setMpStatus('Connected');
+    mp._retries = 0;
+  saveMpPrefs();
+    // subscribe to room
+    ws.send(JSON.stringify({type:'join', room: mp.room, name: mp.name, role: (mp.isGM?'gm':'player')}));
+  try{ presence.peers.clear(); }catch{}
+    // send initial state if GM
+    if(mp.isGM){ const snapshot = exportStateObj(); broadcast({type:'state', data: snapshot}); }
+    // start presence pings
+    startPresence();
+  };
+  ws.onclose = ()=>{ mp.connected=false; stopPresence(); setMpStatus('Disconnected'); scheduleReconnect(); };
+  ws.onerror = ()=>{ setMpStatus('Error'); };
+  ws.onmessage = ev=> { try{ const msg = JSON.parse(ev.data); handleMpMessage(msg); }catch(e){ console.warn('bad msg', e); } };
+}
+function scheduleReconnect(){
+  if(!mp.server || !mp.room) return; // not configured
+  const maxDelay = 8000;
+  const delay = Math.min(maxDelay, 500 * Math.pow(2, (mp._retries||0)));
+  mp._retries = (mp._retries||0) + 1;
+  setTimeout(()=> { if(!mp.connected){ connectWs(); } }, delay);
+}
+function broadcast(msg){ try{ if(!mp.ws || !mp.connected) return; // tag messages to avoid echo loops
+  msg = {...msg, room: mp.room, from: mp.name, _ts: Date.now()}; mp.ws.send(JSON.stringify(msg)); }catch{}
+}
+// ---- Presence (lightweight roster) ----
+const presence = {
+  peers: new Map(), // peerId -> { name, role, ts }
+  interval: null,
+};
+function startPresence(){
+  stopPresence();
+  presence.interval = setInterval(()=>{
+    if(!mp.connected) return;
+  broadcast({ type:'presence', id: mp.peerId, name: mp.name||'', role: (mp.isGM?'gm':'player') });
+  prunePresence();
+  renderSessionBanner();
+  }, 4000);
+  // also announce immediately
+  broadcast({ type:'presence', id: mp.peerId, name: mp.name||'', role: (mp.isGM?'gm':'player') });
+}
+function stopPresence(){ if(presence.interval){ clearInterval(presence.interval); presence.interval=null; } }
+function prunePresence(){ const now=Date.now(); for(const [id,info] of presence.peers){ if(now-(info.ts||0) > 12000) presence.peers.delete(id); } }
+function upsertPresence(msg){ if(!msg?.id) return; presence.peers.set(msg.id, { name: msg.name||'Player', role: msg.role||'player', ts: Date.now() }); prunePresence(); renderSessionBanner(); }
+function exportStateObj(){ return { 
+    tokens:[...document.querySelectorAll('.token')].map(t=>({id:t.dataset.id||uid(),x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',hp:t.dataset.hp||'',vision:t.dataset.vision||'',bg:t.style.backgroundImage||''})),
+    walls, templates, initiative, boardSettings,
+    fog: localStorage.getItem('fogData')||null
+  }; }
+function importStateObj(data){ try{
+  if(data.tokens){ localStorage.setItem('mapTokens', JSON.stringify(data.tokens)); loadTokens(); }
+  if(data.walls){ walls=data.walls; persistWalls(); drawWalls(); }
+  if(data.templates){ templates=data.templates; persistTemplates(); drawTemplates(); }
+  if(data.initiative){ initiative=data.initiative; persistInitiative(); renderInitiative(); }
+  if(data.boardSettings){ boardSettings=data.boardSettings; persistBoardSettings(); applyBoardSettings(); }
+  if(data.fog){ try{ localStorage.setItem('fogData', data.fog); loadFog(); }catch{} }
+}catch(e){ console.error('importStateObj', e); }}
+function applyBoardSettings(){
+  document.getElementById('snapToggle') && (document.getElementById('snapToggle').checked = !!boardSettings.snap);
+  applyBoardBackground(); applyGmMode(); computeVisionAuto();
+}
+function handleMpMessage(msg){
+  if(!msg || msg.room!==mp.room) return; // other room
+  if(msg.type==='perm'){
+    if(!mp.isGM){ mp.allowEdits = !!msg.allowEdits; const el=document.getElementById('playersEditToggle'); if(el) el.checked = mp.allowEdits; setMpStatus(mp.allowEdits? 'Players can edit' : 'View-only'); }
+    return;
+  }
+  if(msg.type==='state' && !mp.isGM){ importStateObj(msg.data||{}); setMpStatus('Synced'); return; }
+  if(msg.type==='cursor'){ updateRemoteCursor(msg); return; }
+  if(msg.type==='presence'){ upsertPresence(msg); return; }
+  if(msg.type==='op' && msg.op){ applyRemoteOp(msg.op); return; }
+}
+function applyRemoteOp(op){ if(!op) return; mp.silent = true; try{
+  if(op.kind==='move'){
+    const t=[...document.querySelectorAll('.token')].find(x=> (x.dataset.id||'')===op.id);
+    if(t){ t.style.left = op.x+'px'; t.style.top = op.y+'px'; saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
+  } else if(op.kind==='walls'){
+    walls = Array.isArray(op.walls)? op.walls: walls; persistWalls(); drawWalls(); if(boardSettings.visionAuto) computeVisionAuto();
+  } else if(op.kind==='templates'){
+    templates = Array.isArray(op.templates)? op.templates: templates; persistTemplates(); drawTemplates();
+  } else if(op.kind==='fog'){
+    if(op.data){ try{ localStorage.setItem('fogData', op.data); loadFog(); }catch{} }
+  } else if(op.kind==='tokensSet'){
+    if(Array.isArray(op.tokens)){ try{ localStorage.setItem('mapTokens', JSON.stringify(op.tokens)); loadTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }catch{} }
+  } else if(op.kind==='tokenAdd'){
+    if(op.token){ try{ const t=op.token; const layer=document.getElementById('tokenLayer'); if(layer){ const d=document.createElement('div'); d.className='token'; d.dataset.id=t.id||uid(); d.style.left=t.x+'px'; d.style.top=t.y+'px'; d.title=t.title||'token'; if(t.type) d.dataset.type=t.type; if(t.hp) d.dataset.hp=t.hp; if(t.vision) d.dataset.vision=t.vision; if(t.bg) d.style.backgroundImage=t.bg; layer.appendChild(d); updateTokenBadges(d); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); } }catch{} }
+  } else if(op.kind==='tokenUpdate'){
+    const t=[...document.querySelectorAll('.token')].find(x=> (x.dataset.id||'')===op.id); if(t && op.fields){ Object.entries(op.fields).forEach(([k,v])=>{ if(k==='hp'){ t.dataset.hp=String(v); updateTokenBadges(t); } else if(k==='type'){ if(v) t.dataset.type=String(v); else delete t.dataset.type; } else if(k==='vision'){ t.dataset.vision=String(v); } else if(k==='title'){ t.title=String(v); } }); saveTokens(); if(op.fields && Object.prototype.hasOwnProperty.call(op.fields,'vision') && boardSettings.visionAuto) computeVisionAuto(); }
+  } else if(op.kind==='tokenDel'){
+    const ids=op.ids||[]; if(ids.length){ [...document.querySelectorAll('.token')].forEach(t=> { if(ids.includes(t.dataset.id||'')) t.remove(); }); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
+  } else if(op.kind==='tokensClear'){
+    const layer=document.getElementById('tokenLayer'); if(layer){ layer.innerHTML=''; saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
+  } else if(op.kind==='initAdd'){
+    const items=op.items||[]; items.forEach(it=> { if(!initiative.order.some(o=>o.id===it.id)) initiative.order.push({id:it.id, name:it.name}); }); persistInitiative(); renderInitiative(); highlightActiveToken();
+  } else if(op.kind==='initRemove'){
+    const id=op.id; if(id){ initiative.order=initiative.order.filter(o=> o.id!==id); if(initiative.current>=initiative.order.length) initiative.current=0; persistInitiative(); renderInitiative(); highlightActiveToken(); }
+  } else if(op.kind==='initCycle'){
+    const dir=op.dir||1; if(initiative.order.length){ initiative.current=(initiative.current+dir+initiative.order.length)%initiative.order.length; renderInitiative(); highlightActiveToken(); }
+  } else if(op.kind==='initClear'){
+    initiative={order:[],current:0}; persistInitiative(); renderInitiative(); highlightActiveToken();
+  } else if(op.kind==='bg'){
+    if(typeof op.data==='string'){ boardSettings.bgImage=op.data; persistBoardSettings(); applyBoardBackground(); }
+  }
+} finally { mp.silent = false; } }
+
+// Strengthen fog buttons with permissions + broadcast
+(function hardenFogButtons(){
+  const full=document.getElementById('fogFullBtn'); const clr=document.getElementById('fogClearBtn'); const rev=document.getElementById('fogRevealBtn'); const canvas=document.getElementById('fogCanvas');
+  full && full.addEventListener('click', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 50); });
+  clr && clr.addEventListener('click', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 50); });
+  if(canvas){ canvas.addEventListener('mouseup', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )) return; setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 100); }); }
+})();
+
+// -------- Welcome Landing (Create / Join / Solo) --------
+function initWelcomeLanding(){
+  const modal=document.getElementById('welcomeModal'); if(!modal) return;
+  // If hash autjoIn, keep modal but user likely intends to join; otherwise show by default
+  modal.classList.remove('hidden');
+  const nameEl=document.getElementById('wlName');
+  const inviteEl=document.getElementById('wlInvite');
+  const prefs = loadMpPrefs();
+  if(nameEl) nameEl.value = prefs.name || '';
+  function genRoom(){ return Math.random().toString(36).slice(2,8); }
+  function parseInvite(v){ try{ const u=new URL(v); const m=u.hash.match(/#join=([^|]+)\|(.+)/); if(m) return { server: decodeURIComponent(m[1]), room: decodeURIComponent(m[2])}; }catch{} return null; }
+  document.getElementById('wlCreate')?.addEventListener('click', ()=>{
+    const name=(nameEl?.value||'GM').trim()||'GM';
+    const room=genRoom();
+    const server=prefs.server||'';
+    if(!server){ toast('Set your relay URL in Advanced (wss://…)'); return; }
+    document.getElementById('mpName') && (document.getElementById('mpName').value=name);
+    document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
+    document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
+    modal.classList.add('hidden');
+    mp.server=server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); renderSessionBanner();
+  });
+  document.getElementById('wlJoin')?.addEventListener('click', ()=>{
+    const name=(nameEl?.value||'Player').trim()||'Player';
+    const parsed = parseInvite(inviteEl?.value||'');
+    if(!parsed){ toast('Paste a valid invite link'); return; }
+    const {server, room} = parsed;
+    document.getElementById('mpName') && (document.getElementById('mpName').value=name);
+    document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
+    document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
+    modal.classList.add('hidden');
+    mp.server=server; mp.room=room; mp.name=name; mp.isGM=false; mp.connected=false; saveMpPrefs(); connectWs(); renderSessionBanner();
+  });
+  document.getElementById('wlSolo')?.addEventListener('click', ()=>{
+    const soloName=(nameEl?.value||'').trim(); if(soloName){ mp.name=soloName; saveMpPrefs(); }
+    mp.server=''; mp.room=''; mp.connected=false; modal.classList.add('hidden'); setMpStatus('Solo'); renderSessionBanner();
+  });
+  document.getElementById('wlAdvanced')?.addEventListener('click', ()=>{
+    // Show the original MP modal for manual server/room setup
+    document.getElementById('mpModal')?.classList.remove('hidden');
+  });
+}
+
+// -------- Live Cursors --------
+let cursors = new Map(); // name -> {x,y,color,el,ts}
+function wireLiveCursors(){
+  const stage=document.getElementById('mapStage'); const layer=document.getElementById('cursorLayer'); if(!stage||!layer) return;
+  const colors=['#4f8dff','#ff5576','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c'];
+  const colorFor=(n)=>{ const h=[...n].reduce((a,c)=>a+c.charCodeAt(0),0); return colors[h%colors.length]; };
+  let lastSend=0; function send(ev){ if(!mp.connected) return; const now=performance.now(); if(now-lastSend<40) return; lastSend=now; const rect=stage.getBoundingClientRect(); const x=ev.clientX-rect.left; const y=ev.clientY-rect.top; broadcast({type:'cursor', room: mp.room, name: mp.name, x, y}); }
+  stage.addEventListener('mousemove', send);
+  // Cleanup stale cursors
+  setInterval(()=>{ const now=Date.now(); for(const [k,v] of cursors){ if(now-(v.ts||0) > 4000){ v.el?.remove(); cursors.delete(k); } } }, 3000);
+
+  window.updateRemoteCursor = function(msg){
+    if(!msg || msg.name===mp.name) return; // ignore self
+    const layer=document.getElementById('cursorLayer'); if(!layer) return;
+    const color=colorFor(msg.name||'peer');
+    let c=cursors.get(msg.name);
+    if(!c){ const el=document.createElement('div'); el.className='remote-cursor'; el.innerHTML = `<span class="dot" style="background:${color}"></span><span class="tag">${escapeHtml(msg.name||'Player')}</span>`; layer.appendChild(el); c={el}; cursors.set(msg.name,c); }
+    c.ts = Date.now(); c.x=msg.x; c.y=msg.y; c.el.style.left=msg.x+'px'; c.el.style.top=msg.y+'px';
+  }
+}
+
+// ------- Session banner (top of map view) -------
+function renderSessionBanner(){
+  const el=document.getElementById('sessionBanner'); if(!el) return;
+  if(!mp.server || !mp.room){
+    el.innerHTML = '<span class="grow">You are in Solo mode. Create or Join a table to play with others.</span>'+
+      '<button class="accent-btn" id="bnCreate">Create Table</button>'+
+      '<button class="mini-btn" id="bnJoin">Join</button>';
+    el.querySelector('#bnCreate')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
+    el.querySelector('#bnJoin')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
+    return;
+  }
+  const link = new URL(location.href); link.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`;
+  const role = mp.isGM? 'GM' : 'Player';
+  const status = document.getElementById('mpStatus')?.textContent || (mp.connected? 'Connected':'Offline');
+  // Build quick roster summary
+  const peers = [...presence.peers.values()].sort((a,b)=> a.name.localeCompare(b.name));
+  const count = peers.length;
+  const names = peers.slice(0,4).map(p=> escapeHtml(p.name)).join(', ')+ (peers.length>4? ` +${peers.length-4}`:'' );
+  el.innerHTML = `<span class="pill">${escapeHtml(role)}</span>`+
+    `<span class="pill">Room: ${escapeHtml(mp.room)}</span>`+
+    `<span class="pill" title="Connected peers seen in last 12s">Peers: ${count}</span>`+
+    `<span class="muted small" style="max-width:40ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${names}</span>`+
+    `<span class="grow">${escapeHtml(status)}</span>`+
+    `<button class="mini-btn" id="bnCopy">Copy Invite</button>`+
+    `<button class="mini-btn" id="bnReconnect">Reconnect</button>`;
+  el.querySelector('#bnCopy')?.addEventListener('click', ()=>{
+    navigator.clipboard?.writeText(link.toString()).then(()=> toast('Invite copied')).catch(()=> toast('Copy failed'));
+  });
+  el.querySelector('#bnReconnect')?.addEventListener('click', ()=>{ if(mp.server){ connectWs(); }});
+}
+
 init();
+
+// -------- Token Inspector --------
+function wireTokenInspector(){
+  const nameI=document.getElementById('tiName'); const typeI=document.getElementById('tiType'); const hpI=document.getElementById('tiHP'); const visI=document.getElementById('tiVision');
+  if(!nameI||!typeI||!hpI||!visI) return;
+  function current(){ return document.querySelector('.token.selected'); }
+  // Reflect selection into form
+  const layer=document.getElementById('tokenLayer');
+  layer?.addEventListener('click', ()=> fill());
+  window.addEventListener('keydown', e=> { if(e.key==='Tab' || e.key==='Enter'){ setTimeout(fill, 0); }});
+  function fill(){ const t=current(); if(!t){ nameI.value=''; typeI.value=''; hpI.value=''; visI.value=''; return; } nameI.value=t.title||''; typeI.value=t.dataset.type||''; hpI.value=t.dataset.hp||''; visI.value=t.dataset.vision||''; }
+  // Apply edits
+  function push(fields){ const t=current(); if(!t) return; Object.entries(fields).forEach(([k,v])=>{
+    if(k==='title'){ t.title=String(v||''); }
+    if(k==='type'){ if(v) t.dataset.type=String(v); else delete t.dataset.type; }
+    if(k==='hp'){ if(v!=='' && v!=null) t.dataset.hp=String(v); else delete t.dataset.hp; updateTokenBadges(t); }
+    if(k==='vision'){ if(v!=='' && v!=null) t.dataset.vision=String(v); else delete t.dataset.vision; if(boardSettings.visionAuto) computeVisionAuto(); }
+  }); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenUpdate', id:(t.dataset.id||''), fields}}); }
+  nameI.addEventListener('input', ()=> push({title:nameI.value}));
+  typeI.addEventListener('change', ()=> push({type:typeI.value}));
+  hpI.addEventListener('input', ()=> push({hp:hpI.value}));
+  visI.addEventListener('input', ()=> push({vision:visI.value}));
+}

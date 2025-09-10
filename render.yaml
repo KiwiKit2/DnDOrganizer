@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: dndex-relay
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    autoDeploy: true
