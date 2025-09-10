@@ -151,9 +151,12 @@
               <label><input type="checkbox" id="showWallsToggle" checked /> Walls</label>
               <label><input type="checkbox" id="showTemplatesToggle" checked /> Templates</label>
               <label><input type="checkbox" id="collideWallsToggle" /> Collide</label>
+              <label><input type="checkbox" id="gmModeToggle" /> GM Mode</label>
             </div>
             <button id="clearWallsBtn" class="mini-btn" title="Delete all walls">Clear Walls</button>
             <button id="clearTemplatesBtn" class="mini-btn" title="Delete all templates">Clear Templates</button>
+            <button id="exportImageBtn" class="mini-btn" title="Export map as PNG">Export PNG</button>
+            <button id="mapHelpBtn" class="mini-btn" title="Show map help">Help</button>
           </div>
         </div>
         <div id="mapStage" class="map-stage">
@@ -164,6 +167,23 @@
           <canvas class="overlay-layer" id="overlayCanvas" width="1200" height="800"></canvas>
         </div>
   <div id="toast" class="toast hidden"></div>
+
+        <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
+          <div class="modal-panel">
+            <header><h2>Map Controls</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
+            <ul>
+              <li><strong>Walls:</strong> Click start→end to draw. Alt+click to delete. Ctrl+Z / Ctrl+Y to undo/redo.</li>
+              <li><strong>Tokens:</strong> Click to select; Ctrl/Shift for multi. Drag to move; Shift+drag empty area = marquee select.</li>
+              <li><strong>Context Menu:</strong> Right‑click token to set Vision, HP, Type; Duplicate or Delete.</li>
+              <li><strong>Vision:</strong> Toggle Vision Auto; Set per‑token radius. Walls block line of sight.</li>
+              <li><strong>Fog:</strong> Fog Full/Clear; Reveal brush with size/shape; Undo.</li>
+              <li><strong>Ruler:</strong> Click then drag. Shows px and squares. Respects Snap.</li>
+              <li><strong>AoE Templates:</strong> Add Circle/Cone/Line; drag to move; Shift+drag to resize; mouse wheel to rotate; Delete to remove.</li>
+              <li><strong>Initiative:</strong> Select tokens → Add Sel; ◀ ▶ to cycle; Clear to reset.</li>
+              <li><strong>GM Mode:</strong> Hides fog for you; players would see fog.</li>
+            </ul>
+          </div>
+        </div>
         <div class="map-panels">
           <div class="initiative-panel" id="initiativePanel">
             <div class="panel-head">Initiative

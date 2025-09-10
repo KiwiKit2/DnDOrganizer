@@ -532,7 +532,7 @@ let walls = []; // each wall: {x1,y1,x2,y2}
 let templates = []; // AoE templates {id, kind:circle|cone|line, x,y,w,h,angle}
 let initiative = { order: [], current: 0 }; // order: [{id, name}]
 let multiSelect = null; // {x1,y1,x2,y2}
-let boardSettings = { visionAuto:true, bgImage:null };
+let boardSettings = { visionAuto:true, bgImage:null, gmMode:false };
 let fogHistory = [];
 
 // Utility IDs
@@ -546,7 +546,7 @@ function wireAdvancedMap(){
   const stage = document.getElementById('mapStage'); if(!stage) return;
   // Load persisted state
   loadWalls(); loadTemplates(); loadInitiative(); loadBoardSettings();
-  drawWalls(); drawTemplates(); renderInitiative(); applyBoardBackground();
+    drawWalls(); drawTemplates(); renderInitiative(); applyBoardBackground(); applyGmMode();
   // Buttons
   document.getElementById('wallModeBtn')?.addEventListener('click', toggleWallMode);
   document.getElementById('visionToggleBtn')?.addEventListener('click', () => { boardSettings.visionAuto = !boardSettings.visionAuto; persistBoardSettings(); computeVisionAuto(); });
@@ -560,6 +560,10 @@ function wireAdvancedMap(){
   document.getElementById('importBoardBtn')?.addEventListener('click', ()=> document.getElementById('importBoardInput').click());
   document.getElementById('importBoardInput')?.addEventListener('change', importBoardState);
   document.getElementById('fogUndoBtn')?.addEventListener('click', undoFogStep);
+  document.getElementById('gmModeToggle')?.addEventListener('change', e=> { boardSettings.gmMode = !!e.target.checked; persistBoardSettings(); applyGmMode(); });
+  document.getElementById('exportImageBtn')?.addEventListener('click', exportPngSnapshot);
+  document.getElementById('mapHelpBtn')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.remove('hidden'));
+  document.getElementById('closeMapHelp')?.addEventListener('click', ()=> document.getElementById('mapHelpModal').classList.add('hidden'));
   // Initiative
   document.getElementById('initAddBtn')?.addEventListener('click', addSelectedToInitiative);
   document.getElementById('initPrevBtn')?.addEventListener('click', ()=> cycleInitiative(-1));
@@ -670,6 +674,7 @@ function importBoardState(e){ const file=e.target.files[0]; if(!file) return; co
 // ----- Persistence helpers -----
 function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
 function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings'); if(raw) boardSettings=JSON.parse(raw); }catch{} }
+function applyGmMode(){ document.body.classList.toggle('gm-mode', !!boardSettings.gmMode); const fog=document.getElementById('fogCanvas'); if(!fog) return; fog.style.visibility = boardSettings.gmMode? 'hidden' : 'visible'; const gmToggle=document.getElementById('gmModeToggle'); if(gmToggle) gmToggle.checked = !!boardSettings.gmMode; }
 
 // ----- Fog history (undo) -----
 function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
@@ -679,6 +684,29 @@ function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop
 function savePref(k,v){ try{ localStorage.setItem('pref:'+k, v);}catch{} }
 function loadPref(k,def){ try{ const v=localStorage.getItem('pref:'+k); return v==null? def : v; }catch{ return def; } }
 function toast(msg){ const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.remove('hidden'); clearTimeout(toast._tmr); toast._tmr = setTimeout(()=> t.classList.add('hidden'), 1200); }
+
+// Export PNG snapshot of the map (simple composite)
+function exportPngSnapshot(){ const map=document.getElementById('battleMap'); const wallsC=document.getElementById('wallsCanvas'); const fogC=document.getElementById('fogCanvas'); const overC=document.getElementById('overlayCanvas'); const tokenLayer=document.getElementById('tokenLayer'); const W=map.width, H=map.height; const out=document.createElement('canvas'); out.width=W; out.height=H; const ctx=out.getContext('2d');
+  // Background fill (patterned board color)
+  ctx.fillStyle = '#101417'; ctx.fillRect(0,0,W,H);
+  // Walls
+  if(wallsC) ctx.drawImage(wallsC,0,0);
+  // Tokens (approximate by drawing circles with stroke color and background)
+  [...tokenLayer.querySelectorAll('.token')].forEach(t=> {
+    const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const r=30;
+    ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.clip();
+    const bg=t.style.backgroundImage; const m=bg&&bg.match(/url\("?(.*?)"?\)/);
+    if(m&&m[1]){ /* Note: External images may be tainted; we still draw a fallback */ ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
+    else { ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
+    ctx.restore(); ctx.strokeStyle=getTokenStroke(t); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+  });
+  // Templates
+  if(overC) ctx.drawImage(overC,0,0);
+  // Optionally fog (omit when GM mode to share clean image)
+  if(!boardSettings.gmMode && fogC) ctx.drawImage(fogC,0,0);
+  const a=document.createElement('a'); a.download='map.png'; a.href=out.toDataURL('image/png'); a.click();
+}
+function getTokenStroke(t){ if(t.dataset.type==='enemy') return '#ff5576'; if(t.dataset.type==='player') return '#4f8dff'; return getComputedStyle(document.body).getPropertyValue('--accent')||'#4f8dff'; }
 
 // ----- Token selection helper (updated) -----
 function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); } t.classList.add('selected'); }
