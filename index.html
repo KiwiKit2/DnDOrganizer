@@ -50,7 +50,7 @@
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
 
-      <section id="view-table" class="view active">
+  <section id="view-table" class="view">
         <div class="toolbar">
           <div class="left-tools">
             <select id="columnFilter"></select>
@@ -123,25 +123,33 @@
       </section>
 
       <section id="view-map" class="view">
-        <div class="map-toolbar">
-          <button id="addTokensBtn" class="mini-btn">Add Filtered as Tokens</button>
-          <label>Grid <input type="number" id="gridSizeInput" value="50" min="20" max="120" step="5" style="width:70px" /></label>
-          <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
-          <button id="addSingleTokenBtn" class="mini-btn">Add Token</button>
-          <label>Snap <input type="checkbox" id="snapToggle" checked /></label>
-          <label class="toggle"><input type="checkbox" id="simpleModeToggle" checked /> <span>Simple Mode</span></label>
-          <label class="toggle"><input type="checkbox" id="perfModeToggle" /> <span>Perf Mode</span></label>
-          <label class="toggle"><input type="checkbox" id="lockBoardToggle" /> <span>Lock</span></label>
-          <label class="toggle"><input type="checkbox" id="cursorsToggle" checked /> <span>Cursors</span></label>
-          <div class="fog-group">
-            <button id="fogFullBtn" class="mini-btn">Fog Full</button>
+        <div class="map-toolbar compact">
+          <div class="map-left">
+            <button id="addSingleTokenBtn" class="mini-btn">Add Token</button>
+            <button id="wallModeBtn" class="mini-btn">Walls</button>
             <button id="fogRevealBtn" class="mini-btn">Reveal</button>
-            <button id="fogClearBtn" class="mini-btn">Clear Fog</button>
+            <button id="rulerBtn" class="mini-btn">Ruler</button>
           </div>
-          <div class="map-tools-group">
-            <button id="wallModeBtn" class="mini-btn" title="Draw walls">Walls</button>
-            <button id="visionToggleBtn" class="mini-btn" title="Toggle auto vision reveal">Vision Auto</button>
-            <button id="rulerBtn" class="mini-btn" title="Measure distance (M)">Ruler</button>
+          <div class="map-right">
+            <label>Grid <input type="number" id="gridSizeInput" value="50" min="20" max="120" step="5" style="width:70px" /></label>
+            <label>Snap <input type="checkbox" id="snapToggle" checked /></label>
+            <button id="exportImageBtn" class="mini-btn" title="Export PNG">PNG</button>
+            <button id="mapMoreBtn" class="mini-btn">More…</button>
+          </div>
+        </div>
+        <div id="mapMorePanel" class="map-more hidden">
+          <div class="more-row">
+            <button id="addTokensBtn" class="mini-btn">Add Filtered as Tokens</button>
+            <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
+            <button id="fogFullBtn" class="mini-btn">Fog Full</button>
+            <button id="fogClearBtn" class="mini-btn">Clear Fog</button>
+            <button id="visionToggleBtn" class="mini-btn">Vision Auto</button>
+            <label class="toggle"><input type="checkbox" id="simpleModeToggle" checked /> <span>Simple</span></label>
+            <label class="toggle"><input type="checkbox" id="perfModeToggle" /> <span>Perf</span></label>
+            <label class="toggle"><input type="checkbox" id="lockBoardToggle" /> <span>Lock</span></label>
+            <label class="toggle"><input type="checkbox" id="cursorsToggle" checked /> <span>Cursors</span></label>
+          </div>
+          <div class="more-row">
             <div class="aoe-group">
               <button id="addCircleTemplateBtn" class="mini-btn" title="Add circle template">◯</button>
               <button id="addConeTemplateBtn" class="mini-btn" title="Add cone template">⌔</button>
@@ -157,6 +165,8 @@
             <button id="importBoardBtn" class="mini-btn" title="Import board state">Import</button>
             <input type="file" id="bgImageInput" accept="image/*" style="display:none" />
             <input type="file" id="importBoardInput" accept="application/json" style="display:none" />
+          </div>
+          <div class="more-row">
             <div class="scenes-group">
               <label>Scene <select id="sceneSelect"></select></label>
               <button id="sceneSaveBtn" class="mini-btn" title="Save current as scene">Save</button>
@@ -179,8 +189,6 @@
             </div>
             <button id="clearWallsBtn" class="mini-btn" title="Delete all walls">Clear Walls</button>
             <button id="clearTemplatesBtn" class="mini-btn" title="Delete all templates">Clear Templates</button>
-            <button id="exportImageBtn" class="mini-btn" title="Export map as PNG">Export PNG</button>
-            <button id="mapHelpBtn" class="mini-btn" title="Show map help">Help</button>
           </div>
         </div>
   <div id="sessionBanner" class="session-banner" aria-live="polite"></div>
@@ -213,18 +221,8 @@
 
   <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
           <div class="modal-panel">
-            <header><h2>Map Controls</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
-            <ul>
-              <li><strong>Walls:</strong> Click start→end to draw. Alt+click to delete. Ctrl+Z / Ctrl+Y to undo/redo.</li>
-              <li><strong>Tokens:</strong> Click to select; Ctrl/Shift for multi. Drag to move; Shift+drag empty area = marquee select.</li>
-              <li><strong>Context Menu:</strong> Right‑click token to set Vision, HP, Type; Duplicate or Delete.</li>
-              <li><strong>Vision:</strong> Toggle Vision Auto; Set per‑token radius. Walls block line of sight.</li>
-              <li><strong>Fog:</strong> Fog Full/Clear; Reveal brush with size/shape; Undo.</li>
-              <li><strong>Ruler:</strong> Click then drag. Shows px and squares. Respects Snap.</li>
-              <li><strong>AoE Templates:</strong> Add Circle/Cone/Line; drag to move; Shift+drag to resize; mouse wheel to rotate; Delete to remove.</li>
-              <li><strong>Initiative:</strong> Select tokens → Add Sel; ◀ ▶ to cycle; Clear to reset.</li>
-              <li><strong>GM Mode:</strong> Hides fog for you; players would see fog.</li>
-            </ul>
+            <header><h2 id="helpTitle">Quick Help</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
+            <div id="helpContent"></div>
           </div>
         </div>
         <div class="map-panels">
@@ -329,35 +327,7 @@
       </div>
     </div>
   </div>
-  <!-- Help modal and floating button -->
-  <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="modal-panel" style="max-width:560px">
-      <header><h2>Quick Help</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
-      <div class="content" style="line-height:1.6">
-        <h3>Quick start</h3>
-        <ul>
-          <li><b>Join</b>: paste invite link → Join.</li>
-          <li><b>Host</b>: paste Relay (wss://) → Save Relay → Create a Table (GM).</li>
-          <li><b>Share</b>: once in, click <i>Copy Invite</i> in the top banner.</li>
-          <li><b>Solo</b>: no relay needed.</li>
-        </ul>
-        <h3>Board basics</h3>
-        <ul>
-          <li>Drag tokens to move; Shift-click to multi-select.</li>
-          <li>Right-click a token for actions (HP, type, duplicate, delete).</li>
-          <li>Ruler: press <code>M</code>. AoE: use circle/cone/line tools.</li>
-          <li>Fog: click Reveal and paint to uncover areas.</li>
-        </ul>
-        <h3>Tips</h3>
-        <ul>
-          <li>GM Mode toggles showing hidden info.</li>
-          <li>Perf Mode reduces vision recompute on slow devices.</li>
-          <li>Use Scenes to save/load setups.</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-  <button id="helpFab" title="Help" style="position:fixed; right:16px; bottom:16px; width:40px; height:40px; border-radius:20px; border:none; background:#2a2f36; color:#fff; font-weight:700; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.25)">?</button>
+  
   <div id="dropOverlay" class="drop-overlay hidden" title="Click to dismiss">Drag & release a CSV/XLSX here to load</div>
   <script src="js/config.js"></script>
   <script src="js/persist.js"></script>

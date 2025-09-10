@@ -601,8 +601,43 @@ function uid(){ return Math.random().toString(36).slice(2,9); }
 
 // Global help wiring (works on every view)
 function wireHelp(){
-  document.getElementById('helpFab')?.addEventListener('click', ()=> document.getElementById('mapHelpModal')?.classList.remove('hidden'));
+  const open=()=>{
+    const modal=document.getElementById('mapHelpModal'); const title=document.getElementById('helpTitle'); const body=document.getElementById('helpContent');
+    if(!modal||!title||!body) return;
+    // Decide content based on current view
+    const view=document.querySelector('.view.active')?.id||'';
+    if(view==='view-map'){
+      title.textContent='Board Help';
+      body.innerHTML = '<ul>'+
+        '<li>Add Token, Walls, Reveal, Ruler are the primary tools. More… opens advanced tools.</li>'+
+        '<li>Drag tokens to move; right-click a token for actions (HP, Type, Vision, Duplicate, Delete).</li>'+
+        '<li>Reveal lets you uncover areas. Use Grid + Snap for neat placement.</li>'+
+        '<li>Share from the banner. GM can enable player editing.</li>'+
+      '</ul>';
+    } else if(view==='view-board'){
+      title.textContent='Kanban Help';
+      body.innerHTML = '<p>Group by a column, drag cards between columns, and add new cards with the New Card button.</p>';
+    } else if(view==='view-table'){
+      title.textContent='Table Help';
+      body.innerHTML = '<p>Search and filter columns. Click a row to edit. Export as CSV/JSON from the toolbar.</p>';
+    } else if(view==='view-entities'){
+      title.textContent='Entities Help';
+      body.innerHTML = '<p>Search entities. Click a tile for details. Use New Entry (Admin) to add items.</p>';
+    } else if(view==='view-moves'){
+      title.textContent='Moves Help';
+      body.innerHTML = '<p>Create or edit a move on the left; it appears in the list on the right. You can import/export Excel.</p>';
+    } else {
+      title.textContent='Help';
+      body.textContent = 'Use the navigation on the left to switch views.';
+    }
+    modal.classList.remove('hidden');
+  };
+  document.getElementById('helpFab')?.addEventListener('click', open);
   document.getElementById('closeMapHelp')?.addEventListener('click', ()=> document.getElementById('mapHelpModal')?.classList.add('hidden'));
+  // Dismiss on backdrop click and Escape
+  const modal=document.getElementById('mapHelpModal');
+  modal?.addEventListener('click', (e)=> { if(e.target===modal) modal.classList.add('hidden'); });
+  window.addEventListener('keydown', (e)=> { if(e.key==='Escape' && !document.getElementById('mapHelpModal')?.classList.contains('hidden')) document.getElementById('mapHelpModal')?.classList.add('hidden'); });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -612,6 +647,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function wireAdvancedMap(){
   const stage = document.getElementById('mapStage'); if(!stage) return;
+  // More panel toggle
+  const moreBtn=document.getElementById('mapMoreBtn');
+  const morePanel=document.getElementById('mapMorePanel');
+  if(moreBtn && morePanel){
+    // Restore persisted state
+    const open = loadPref('mapMoreOpen','false')==='true';
+    morePanel.classList.toggle('hidden', !open);
+    moreBtn.setAttribute('aria-controls','mapMorePanel');
+    moreBtn.setAttribute('aria-expanded', String(open));
+    moreBtn.addEventListener('click', ()=>{
+      const nowHidden = morePanel.classList.toggle('hidden');
+      const isOpen = !nowHidden;
+      moreBtn.setAttribute('aria-expanded', String(isOpen));
+      savePref('mapMoreOpen', isOpen? 'true':'false');
+    });
+  }
   // Load persisted state
   loadWalls(); loadTemplates(); loadInitiative(); loadBoardSettings();
     drawWalls(); drawTemplates(); renderInitiative(); applyBoardBackground(); applyGmMode();
