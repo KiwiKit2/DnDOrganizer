@@ -583,6 +583,8 @@ function onStageMouseDown(e){
   if(wallMode){
     const rect = stage.getBoundingClientRect();
     const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+  // Alt+click to delete nearest wall
+  if(e.altKey){ const idx = findNearestWall(x,y,10); if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); toast('Wall removed'); } return; }
     if(!wallTempPoint){ wallTempPoint={x,y}; }
     else { walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x,y2:y}); wallTempPoint=null; persistWalls(); drawWalls(); }
     e.preventDefault(); return;
@@ -601,6 +603,8 @@ function loadWalls(){ try{ const raw=localStorage.getItem('mapWalls'); if(raw) w
 function addTemplate(kind){ const t={id:uid(),kind,x:300,y:300,w:160,h:160,angle:0}; templates.push(t); persistTemplates(); drawTemplates(); }
 function drawTemplates(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height);
   templates.forEach(t=> { ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.angle*Math.PI/180); ctx.strokeStyle='rgba(79,141,255,0.9)'; ctx.fillStyle='rgba(79,141,255,0.18)'; ctx.lineWidth=2; if(t.kind==='circle'){ ctx.beginPath(); ctx.arc(0,0,t.w/2,0,Math.PI*2); ctx.fill(); ctx.stroke(); } else if(t.kind==='cone'){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(t.w, -t.h/2); ctx.lineTo(t.w, t.h/2); ctx.closePath(); ctx.fill(); ctx.stroke(); } else if(t.kind==='line'){ ctx.beginPath(); ctx.rect(0,-t.h/2,t.w,t.h); ctx.fill(); ctx.stroke(); } ctx.restore(); });
+  // Enable pointer events based on presence
+  c.style.pointerEvents = templates.length ? 'auto' : 'none';
 }
 // Interaction on overlay templates
 let selectedTemplateId=null; let templateDragMode=null; // 'move'|'resize'
@@ -639,9 +643,12 @@ function onContextMenu(e){ const tok = e.target.closest('.token'); if(!tok){ ret
 function showContextMenu(x,y,token){ hideContextMenu(); const menu=document.createElement('div'); menu.className='token-context'; menu.id='tokenContextMenu'; menu.innerHTML='<ul>'+[
     {k:'vision',label:'Set Vision'},
     {k:'hp',label:'Set HP'},
+    {k:'type_player',label:'Set Type: Player'},
+    {k:'type_enemy',label:'Set Type: Enemy'},
+    {k:'type_neutral',label:'Set Type: Neutral'},
     {k:'dup',label:'Duplicate'},
     {k:'del',label:'Delete Token'}
-  ].map(o=>`<li data-k="${o.k}">${o.label}</li>`).join('')+'</ul>'; document.body.appendChild(menu); positionMenu(menu,x,y); menu.addEventListener('click', ev=> { const li=ev.target.closest('li'); if(!li) return; const k=li.dataset.k; if(k==='vision'){ const r=prompt('Vision radius px:', token.dataset.vision||'180'); if(r) setTokenVision(token, parseInt(r)||0); } else if(k==='hp'){ const hp=prompt('HP value:', token.dataset.hp||''); if(hp!==null){ token.dataset.hp=hp; updateTokenBadges(token); saveTokens(); } } else if(k==='dup'){ duplicateToken(token); } else if(k==='del'){ token.remove(); saveTokens(); } hideContextMenu(); }); }
+  ].map(o=>`<li data-k="${o.k}">${o.label}</li>`).join('')+'</ul>'; document.body.appendChild(menu); positionMenu(menu,x,y); menu.addEventListener('click', ev=> { const li=ev.target.closest('li'); if(!li) return; const k=li.dataset.k; if(k==='vision'){ const r=prompt('Vision radius px:', token.dataset.vision||'180'); if(r) setTokenVision(token, parseInt(r)||0); } else if(k==='hp'){ const hp=prompt('HP value:', token.dataset.hp||''); if(hp!==null){ token.dataset.hp=hp; updateTokenBadges(token); saveTokens(); } } else if(k==='dup'){ duplicateToken(token); } else if(k==='del'){ token.remove(); saveTokens(); } else if(k==='type_player'){ token.dataset.type='player'; saveTokens(); } else if(k==='type_enemy'){ token.dataset.type='enemy'; saveTokens(); } else if(k==='type_neutral'){ delete token.dataset.type; saveTokens(); } hideContextMenu(); }); }
 function positionMenu(menu,x,y){ const vw=window.innerWidth,vh=window.innerHeight; const r=menu.getBoundingClientRect(); if(x+r.width>vw) x=vw-r.width-10; if(y+r.height>vh) y=vh-r.height-10; menu.style.left=x+'px'; menu.style.top=y+'px'; }
 function hideContextMenu(){ document.getElementById('tokenContextMenu')?.remove(); }
 function duplicateToken(tok){ const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); saveTokens(); }
@@ -678,6 +685,11 @@ function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.to
 
 // Keyboard actions
 window.addEventListener('keydown', e=> { if(e.key==='Delete'){ const sel=[...document.querySelectorAll('.token.selected')]; if(sel.length){ sel.forEach(t=> t.remove()); saveTokens(); computeVisionAuto(); } } });
+
+// Helpers and keybinds for walls
+function findNearestWall(x,y,thresh){ let best=-1,bd=1e9; walls.forEach((w,i)=>{ const d=distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2); if(d<bd){ bd=d; best=i; } }); return bd<=thresh? best : -1; }
+let wallsRedo=[];
+window.addEventListener('keydown', e=> { if(e.ctrlKey && (e.key==='z' || e.key==='Z')){ if(walls.length){ wallsRedo.push(walls.pop()); persistWalls(); drawWalls(); toast('Undo wall'); } e.preventDefault(); } else if(e.ctrlKey && (e.key==='y' || e.key==='Y')){ if(wallsRedo.length){ walls.push(wallsRedo.pop()); persistWalls(); drawWalls(); toast('Redo wall'); } e.preventDefault(); } });
 
 
 
