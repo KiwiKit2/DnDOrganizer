@@ -126,7 +126,7 @@ select:focus {outline:2px solid var(--accent);}
 .token-layer {pointer-events:auto;}
 .fog-layer {pointer-events:none;}
 .walls-layer {pointer-events:none;}
-.overlay-layer {pointer-events:none;}
+.overlay-layer {pointer-events:auto;}
 .token {position:absolute;transform:translate(-50%,-50%);width:60px;height:60px;border:2px solid var(--accent);border-radius:50%;background:#222 center/cover no-repeat;box-shadow:0 4px 12px -4px rgba(0,0,0,.6);} 
 .token[data-type="enemy"] {border-color:#ff5576;}
 .token[data-type="player"] {border-color:#4f8dff;}

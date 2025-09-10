@@ -406,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const gridInput = document.getElementById('gridSizeInput');
   if (gridInput) gridInput.addEventListener('change', refreshMap);
   const layer = document.getElementById('tokenLayer');
-  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) { selectToken(e.target); dragToken(e); } });
+  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) { const additive = e.ctrlKey||e.shiftKey; selectToken(e.target, additive); dragToken(e); } });
   document.getElementById('addSingleTokenBtn')?.addEventListener('click', ()=> newAdHocToken());
   setupFog();
   loadTokens();
@@ -425,6 +425,7 @@ function addTokensFromFiltered() {
   state.filtered.slice(0,60).forEach(o => {
     const div = document.createElement('div');
     div.className = 'token';
+  div.dataset.id = uid();
     const type = (o[typeField]||'').toLowerCase();
     if (/enemy|monster|foe/.test(type)) div.dataset.type='enemy'; else if (/player|pc|hero|character/.test(type)) div.dataset.type='player';
     div.title = o[nameField];
@@ -451,13 +452,20 @@ function addTokensFromFiltered() {
 function dragToken(e) {
   const token = e.target;
   let sx = e.clientX, sy = e.clientY;
-  const startLeft = parseFloat(token.style.left); const startTop = parseFloat(token.style.top);
+  const selected = [...document.querySelectorAll('.token.selected')];
+  const moving = selected.length>1 && selected.includes(token) ? selected : [token];
+  const starts = moving.map(t=> ({t, x:parseFloat(t.style.left), y:parseFloat(t.style.top)}));
   function move(ev) {
     const dx = ev.clientX - sx; const dy = ev.clientY - sy;
-    token.style.left = (startLeft + dx) + 'px';
-    token.style.top = (startTop + dy) + 'px';
+    starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
   }
-  function up() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
+  function up() {
+    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    // Snap to grid if enabled
+    const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
+    if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
+    saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
+  }
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 }
 
@@ -483,26 +491,26 @@ function newAdHocToken(){
 }
 function saveTokens(){
   const layer = document.getElementById('tokenLayer'); if(!layer) return;
-  const tokens=[...layer.querySelectorAll('.token')].map(t=>({x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',bg:t.style.backgroundImage||''}));
+  const tokens=[...layer.querySelectorAll('.token')].map(t=>({id:t.dataset.id||uid(),x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',bg:t.style.backgroundImage||'',hp:t.dataset.hp||'',vision:t.dataset.vision||''}));
   try { localStorage.setItem('mapTokens', JSON.stringify(tokens)); } catch{}
 }
 function loadTokens(){
-  try { const raw = localStorage.getItem('mapTokens'); if(!raw) return; const arr=JSON.parse(raw); const layer=document.getElementById('tokenLayer'); if(!layer) return; layer.innerHTML=''; arr.forEach(o=> { const d=document.createElement('div'); d.className='token'; d.style.left=o.x+'px'; d.style.top=o.y+'px'; d.title=o.title; if(o.type) d.dataset.type=o.type; if(o.bg) d.style.backgroundImage=o.bg; layer.appendChild(d); }); } catch {}
+  try { const raw = localStorage.getItem('mapTokens'); if(!raw) return; const arr=JSON.parse(raw); const layer=document.getElementById('tokenLayer'); if(!layer) return; layer.innerHTML=''; arr.forEach(o=> { const d=document.createElement('div'); d.className='token'; d.dataset.id=o.id||uid(); d.style.left=o.x+'px'; d.style.top=o.y+'px'; d.title=o.title; if(o.type) d.dataset.type=o.type; if(o.bg) d.style.backgroundImage=o.bg; if(o.hp) d.dataset.hp=o.hp; if(o.vision) d.dataset.vision=o.vision; layer.appendChild(d); updateTokenBadges(d); }); } catch {}
 }
 
 let fogCtx, fogMode='none';
 function setupFog(){
   const canvas = document.getElementById('fogCanvas'); if(!canvas) return;
   fogCtx = canvas.getContext('2d');
-  document.getElementById('fogFullBtn')?.addEventListener('click', ()=> { coverFog(); fogMode='none'; saveFog(); });
-  document.getElementById('fogClearBtn')?.addEventListener('click', ()=> { clearFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogFullBtn')?.addEventListener('click', ()=> { pushFogHistory(); coverFog(); fogMode='none'; saveFog(); });
+  document.getElementById('fogClearBtn')?.addEventListener('click', ()=> { pushFogHistory(); clearFog(); fogMode='none'; saveFog(); });
   document.getElementById('fogRevealBtn')?.addEventListener('click', ()=> { fogMode='reveal'; });
   coverFog(); loadFog();
-  canvas.addEventListener('mousedown', e=> { if(fogMode==='reveal'){ revealAt(e.offsetX,e.offsetY); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
+  canvas.addEventListener('mousedown', e=> { if(fogMode==='reveal'){ pushFogHistory(); revealAt(e.offsetX,e.offsetY,true); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY,false); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
 }
 function coverFog(){ if(!fogCtx) return; fogCtx.globalCompositeOperation='source-over'; fogCtx.fillStyle='rgba(0,0,0,0.85)'; fogCtx.fillRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
 function clearFog(){ if(!fogCtx) return; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
-function revealAt(x,y){ if(!fogCtx) return; const r=90; fogCtx.globalCompositeOperation='destination-out'; fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); }
+function revealAt(x,y,start){ if(!fogCtx) return; const r = +document.getElementById('fogBrushSize')?.value||90; const shape = document.getElementById('fogBrushShape')?.value||'circle'; fogCtx.globalCompositeOperation='destination-out'; if(shape==='rect'){ const w=r, h=r; fogCtx.fillRect(x-w/2,y-h/2,w,h); } else { fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); } }
 function saveFog(){ if(!fogCtx) return; try { localStorage.setItem('fogData', fogCtx.canvas.toDataURL()); } catch {} }
 function loadFog(){ try { const d=localStorage.getItem('fogData'); if(!d||!fogCtx) return; const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); }; img.src=d; } catch {} }
 
@@ -573,15 +581,24 @@ function onStageMouseDown(e){
 function startMultiDrag(){ const stage=document.getElementById('mapStage'); function mv(ev){ const r=stage.getBoundingClientRect(); multiSelect.x2=ev.clientX-r.left; multiSelect.y2=ev.clientY-r.top; drawMultiSelect(); } function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); finalizeMultiSelect(); } document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); }
 function drawMultiSelect(){ let box=document.getElementById('multiSelectRect'); if(!box){ box=document.createElement('div'); box.id='multiSelectRect'; box.className='multi-select-rect'; document.getElementById('mapStage').appendChild(box);} const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1); Object.assign(box.style,{left:l+'px',top:t+'px',width:w+'px',height:h+'px'}); }
 function finalizeMultiSelect(){ const box=document.getElementById('multiSelectRect'); if(box) box.remove(); if(!multiSelect) return; const layer=document.getElementById('tokenLayer'); const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),r=Math.max(x1,x2),b=Math.max(y1,y2); [...layer.querySelectorAll('.token')].forEach(tok=> { const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); if(x>=l && x<=r && y>=t && y<=b) tok.classList.add('selected'); }); multiSelect=null; }
-function drawWalls(){ const c=document.getElementById('wallsCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=3; walls.forEach(w=> { ctx.beginPath(); ctx.moveTo(w.x1,w.y1); ctx.lineTo(w.x2,w.y2); ctx.stroke(); }); if(wallTempPoint){ ctx.fillStyle='var(--accent)'; ctx.beginPath(); ctx.arc(wallTempPoint.x,wallTempPoint.y,4,0,Math.PI*2); ctx.fill(); } }
+function drawWalls(){ const c=document.getElementById('wallsCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=3; walls.forEach(w=> { ctx.beginPath(); ctx.moveTo(w.x1,w.y1); ctx.lineTo(w.x2,w.y2); ctx.stroke(); }); if(wallTempPoint){ ctx.fillStyle='rgb(79,141,255)'; ctx.beginPath(); ctx.arc(wallTempPoint.x,wallTempPoint.y,4,0,Math.PI*2); ctx.fill(); } }
 function persistWalls(){ try{ localStorage.setItem('mapWalls', JSON.stringify(walls)); }catch{} }
 function loadWalls(){ try{ const raw=localStorage.getItem('mapWalls'); if(raw) walls=JSON.parse(raw); }catch{} }
 
 // ----- Templates (AoE) -----
 function addTemplate(kind){ const t={id:uid(),kind,x:300,y:300,w:160,h:160,angle:0}; templates.push(t); persistTemplates(); drawTemplates(); }
-function drawTemplates(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); // visual handles simplified with DOM alt? using canvas now
+function drawTemplates(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height);
   templates.forEach(t=> { ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.angle*Math.PI/180); ctx.strokeStyle='rgba(79,141,255,0.9)'; ctx.fillStyle='rgba(79,141,255,0.18)'; ctx.lineWidth=2; if(t.kind==='circle'){ ctx.beginPath(); ctx.arc(0,0,t.w/2,0,Math.PI*2); ctx.fill(); ctx.stroke(); } else if(t.kind==='cone'){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(t.w, -t.h/2); ctx.lineTo(t.w, t.h/2); ctx.closePath(); ctx.fill(); ctx.stroke(); } else if(t.kind==='line'){ ctx.beginPath(); ctx.rect(0,-t.h/2,t.w,t.h); ctx.fill(); ctx.stroke(); } ctx.restore(); });
 }
+// Interaction on overlay templates
+let selectedTemplateId=null; let templateDragMode=null; // 'move'|'resize'
+(function wireTemplatesInteractions(){ const c=document.getElementById('overlayCanvas'); if(!c) return; const stage=document.getElementById('mapStage'); let start=null; c.addEventListener('mousedown', e=> { const rect=c.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top; const t=findTemplateAt(x,y); if(!t) return; selectedTemplateId=t.id; templateDragMode = e.shiftKey? 'resize':'move'; start={x,y,t: {...t}}; function mv(ev){ const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const dx=rx-start.x, dy=ry-start.y; const cur=templates.find(tt=>tt.id===selectedTemplateId); if(!cur) return; if(templateDragMode==='move'){ cur.x = start.t.x + dx; cur.y = start.t.y + dy; } else { cur.w = Math.max(20, start.t.w + dx); cur.h = Math.max(20, start.t.h + dy); } drawTemplates(); }
+    function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); persistTemplates(); }
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); }); c.addEventListener('wheel', e=> { if(!selectedTemplateId) return; const cur=templates.find(tt=>tt.id===selectedTemplateId); if(!cur) return; cur.angle += (e.deltaY>0? 5 : -5); drawTemplates(); persistTemplates(); e.preventDefault(); }, {passive:false}); window.addEventListener('keydown', e=> { if(e.key==='Delete' && selectedTemplateId){ templates = templates.filter(t=> t.id!==selectedTemplateId); selectedTemplateId=null; drawTemplates(); persistTemplates(); } }); function findTemplateAt(x,y){ // naive hit: within bounding box
+      for(let i=templates.length-1;i>=0;i--){ const t=templates[i]; const dx=x - t.x, dy=y - t.y; const dist=Math.hypot(dx,dy); if(t.kind==='circle'){ if(dist<=t.w/2) return t; } else { // use bbox in local coords rotated inverse
+          const ang=-t.angle*Math.PI/180; const lx=dx*Math.cos(ang)-dy*Math.sin(ang); const ly=dx*Math.sin(ang)+dy*Math.cos(ang); if(Math.abs(lx)<=t.w && Math.abs(ly)<=t.h) return t; }
+      } return null; }
+})();
 function persistTemplates(){ try{ localStorage.setItem('mapTemplates', JSON.stringify(templates)); }catch{} }
 function loadTemplates(){ try{ const raw=localStorage.getItem('mapTemplates'); if(raw) templates=JSON.parse(raw); }catch{} }
 
@@ -594,13 +611,14 @@ function persistInitiative(){ try{ localStorage.setItem('mapInitiative', JSON.st
 function loadInitiative(){ try{ const raw=localStorage.getItem('mapInitiative'); if(raw) initiative=JSON.parse(raw); }catch{} }
 
 // ----- Vision (simplified radial reveal) -----
-function computeVisionAuto(){ if(!boardSettings.visionAuto) return; // Basic: reveal around each player token
-  pushFogHistory();
-  const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; loadFog(); // ensure fog is current
-  fogCtx.globalCompositeOperation='destination-out';
-  [...document.querySelectorAll('.token')].forEach(t=> { const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); });
-  saveFog();
-}
+function computeVisionAuto(){ if(!boardSettings.visionAuto) return; const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; pushFogHistory(); coverFog(); fogCtx.globalCompositeOperation='destination-out'; [...document.querySelectorAll('.token')].forEach(t=> revealVisionForToken(t)); saveFog(); }
+function revealVisionForToken(t){ const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); const poly = computeLOS(x,y,r); drawPoly(fogCtx, poly, true); }
+function computeLOS(cx,cy,r){ // raycast to walls
+  const pts=[]; const angles=[]; walls.forEach(w=> { const a1=Math.atan2(w.y1-cy,w.x1-cx); const a2=Math.atan2(w.y2-cy,w.x2-cx); angles.push(a1-0.0001,a1,a1+0.0001,a2-0.0001,a2,a2+0.0001); }); for(let a=0;a<Math.PI*2;a+=Math.PI/90) angles.push(a); const uniq=[...new Set(angles)]; uniq.sort((a,b)=>a-b); uniq.forEach(theta=> { const end = castRay(cx,cy,theta,r); pts.push(end); }); return pts; }
+function castRay(x,y,ang,r){ const dx=Math.cos(ang), dy=Math.sin(ang); let minT=1e9; let hitX=x+dx*r, hitY=y+dy*r; walls.forEach(w=> { const res = segIntersect(x,y,dx,dy, w.x1,w.y1,w.x2,w.y2); if(res && res.t<minT && res.t>=0 && res.t<=r){ minT=res.t; hitX=x+dx*res.t; hitY=y+dy*res.t; } }); return {x:hitX,y:hitY}; }
+function segIntersect(x,y,dx,dy, x1,y1,x2,y2){ // ray (x,y)+(t)(dx,dy) with segment (x1,y1)-(x2,y2)
+  const sx=x2-x1, sy=y2-y1; const denom = dx*sy - dy*sx; if(Math.abs(denom) < 1e-6) return null; const t = ((x1 - x)*sy - (y1 - y)*sx)/denom; const u = ((x1 - x)*dy - (y1 - y)*dx)/denom; if(t>=0 && u>=0 && u<=1) return {t,u}; return null; }
+function drawPoly(ctx, pts, close){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y); if(close) ctx.closePath(); ctx.fill(); }
 function setTokenVision(token, radius){ token.dataset.vision=radius; if(boardSettings.visionAuto) computeVisionAuto(); }
 
 // ----- Context Menu -----
@@ -620,7 +638,7 @@ function updateTokenBadges(tok){ let stack=tok.querySelector('.badge-stack'); if
 // ----- Ruler -----
 let rulerActive=false; let rulerStart=null; let rulerEl=null;
 function startRulerMode(){ rulerActive=true; document.getElementById('rulerBtn')?.classList.add('active'); const stage=document.getElementById('mapStage'); stage.addEventListener('mousedown', rulerDown,{once:true}); }
-function rulerDown(e){ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); rulerStart={x:e.clientX-rect.left,y:e.clientY-rect.top}; rulerEl=document.createElement('div'); rulerEl.className='ruler-line'; stage.appendChild(rulerEl); function mv(ev){ const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const dx=rx-rulerStart.x, dy=ry-rulerStart.y; const len=Math.sqrt(dx*dx+dy*dy); rulerEl.textContent=len.toFixed(0); const left=Math.min(rx,rulerStart.x), top=Math.min(ry,rulerStart.y); Object.assign(rulerEl.style,{left:left+'px',top:top+'px',width:Math.abs(dx)+'px',height:Math.abs(dy)+'px'}); } function up(){ stage.removeEventListener('mousemove',mv); stage.removeEventListener('mouseup',up); setTimeout(()=>{ rulerEl?.remove(); rulerActive=false; document.getElementById('rulerBtn')?.classList.remove('active'); },2000); } stage.addEventListener('mousemove',mv); stage.addEventListener('mouseup',up); }
+function rulerDown(e){ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); rulerStart={x:e.clientX-rect.left,y:e.clientY-rect.top}; rulerEl=document.createElement('div'); rulerEl.className='ruler-line'; stage.appendChild(rulerEl); function mv(ev){ const grid = +document.getElementById('gridSizeInput')?.value||50; const snap = document.getElementById('snapToggle')?.checked; const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const ex=snap? Math.round(rx/grid)*grid : rx; const ey=snap? Math.round(ry/grid)*grid : ry; const sx=snap? Math.round(rulerStart.x/grid)*grid : rulerStart.x; const sy=snap? Math.round(rulerStart.y/grid)*grid : rulerStart.y; const dx=ex-sx, dy=ey-sy; const len=Math.sqrt(dx*dx+dy*dy); const squares=(len/grid).toFixed(1); rulerEl.textContent=`${len.toFixed(0)} px • ${squares} squares`; const left=Math.min(ex,sx), top=Math.min(ey,sy); Object.assign(rulerEl.style,{left:left+'px',top:top+'px',width:Math.abs(dx)+'px',height:Math.abs(dy)+'px'}); } function up(){ stage.removeEventListener('mousemove',mv); stage.removeEventListener('mouseup',up); setTimeout(()=>{ rulerEl?.remove(); rulerActive=false; document.getElementById('rulerBtn')?.classList.remove('active'); },1500); } stage.addEventListener('mousemove',mv); stage.addEventListener('mouseup',up); }
 
 // ----- Background Image -----
 function handleBgUpload(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { boardSettings.bgImage=ev.target.result; persistBoardSettings(); applyBoardBackground(); }; reader.readAsDataURL(file); e.target.value=''; }
@@ -637,6 +655,12 @@ function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings
 // ----- Fog history (undo) -----
 function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
 function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
+
+// ----- Token selection helper (updated) -----
+function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); } t.classList.add('selected'); }
+
+// Keyboard actions
+window.addEventListener('keydown', e=> { if(e.key==='Delete'){ const sel=[...document.querySelectorAll('.token.selected')]; if(sel.length){ sel.forEach(t=> t.remove()); saveTokens(); computeVisionAuto(); } } });
 
 
 
