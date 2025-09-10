@@ -1172,15 +1172,23 @@ function initWelcomeLanding(){
   modal.classList.remove('hidden');
   const nameEl=document.getElementById('wlName');
   const inviteEl=document.getElementById('wlInvite');
+  const serverInline=document.getElementById('wlServerInline');
   const prefs = loadMpPrefs();
   if(nameEl) nameEl.value = prefs.name || '';
+  if(serverInline) serverInline.value = prefs.server || '';
   function genRoom(){ return Math.random().toString(36).slice(2,8); }
   function parseInvite(v){ try{ const u=new URL(v); const m=u.hash.match(/#join=([^|]+)\|(.+)/); if(m) return { server: decodeURIComponent(m[1]), room: decodeURIComponent(m[2])}; }catch{} return null; }
+  document.getElementById('wlSaveRelay')?.addEventListener('click', ()=>{
+    const v=(serverInline?.value||'').trim();
+    if(!v){ toast('Enter a wss:// relay URL'); return; }
+    try{ const url=new URL(v); if(url.protocol!=='wss:' && url.protocol!=='ws:') throw new Error('bad'); }catch{ toast('Relay must start with wss://'); return; }
+    mp.server=v; saveMpPrefs(); toast('Relay saved');
+  });
   document.getElementById('wlCreate')?.addEventListener('click', ()=>{
     const name=(nameEl?.value||'GM').trim()||'GM';
     const room=genRoom();
-    const server=prefs.server||'';
-    if(!server){ toast('Set your relay URL in Advanced (wss://…)'); return; }
+    const server=(serverInline?.value||prefs.server||'').trim();
+    if(!server){ toast('Enter Relay URL then Save Relay'); return; }
     document.getElementById('mpName') && (document.getElementById('mpName').value=name);
     document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
     document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
@@ -1202,10 +1210,7 @@ function initWelcomeLanding(){
     const soloName=(nameEl?.value||'').trim(); if(soloName){ mp.name=soloName; saveMpPrefs(); }
     mp.server=''; mp.room=''; mp.connected=false; modal.classList.add('hidden'); setMpStatus('Solo'); renderSessionBanner();
   });
-  document.getElementById('wlAdvanced')?.addEventListener('click', ()=>{
-    // Show the original MP modal for manual server/room setup
-    document.getElementById('mpModal')?.classList.remove('hidden');
-  });
+  // Advanced removed for simplicity
 }
 
 // -------- Live Cursors --------

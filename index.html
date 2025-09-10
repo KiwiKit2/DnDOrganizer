@@ -324,11 +324,26 @@
         <label>Relay URL (saved)
           <input id="wlServerInline" placeholder="wss://your-relay.example.com" />
         </label>
-        <button id="wlAdvanced" class="mini-btn" title="Open full options">Advanced…</button>
+        <button id="wlSaveRelay" class="mini-btn">Save Relay</button>
         <small style="opacity:.75">Create generates a room code and uses your saved relay (wss://). Join works by pasting an invite link.</small>
       </div>
     </div>
   </div>
+  <!-- Help modal and floating button -->
+  <div id="mapHelpModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel" style="max-width:560px">
+      <header><h2>Quick Help</h2><button id="closeMapHelp" class="close-btn" aria-label="Close">×</button></header>
+      <div class="content">
+        <ol>
+          <li>To play together fast: click Join and paste an invite link from a friend.</li>
+          <li>To host: paste your Relay URL (wss://) below, click Save Relay, then Create a Table.</li>
+          <li>Once in a table, use Copy Invite in the top banner to share.</li>
+          <li>Solo mode works without any relay.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+  <button id="helpFab" title="Help" style="position:fixed; right:16px; bottom:16px; width:40px; height:40px; border-radius:20px; border:none; background:#2a2f36; color:#fff; font-weight:700; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.25)">?</button>
   <div id="dropOverlay" class="drop-overlay hidden" title="Click to dismiss">Drag & release a CSV/XLSX here to load</div>
   <script src="js/config.js"></script>
   <script src="js/persist.js"></script>
