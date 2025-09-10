@@ -131,6 +131,10 @@ select:focus {outline:2px solid var(--accent);}
 .map-toolbar .map-left,.map-toolbar .map-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .map-more{border:1px solid var(--border);border-radius:12px;background:var(--bg-raised);padding:10px 12px;box-shadow:var(--shadow-1);margin-bottom:10px}
 .map-more .more-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+/* Hide clutter on Map view: keep theme and help only */
+.main .topbar .hide-on-map{display:inline-flex}
+/* When Map view is active, hide marked controls */
+body:has(#view-map.view.active) .topbar .hide-on-map{display:none !important}
 .map-stage {position:relative;overflow:auto;border:1px solid var(--border);border-radius:18px;background:#0b0e10;min-height:520px;box-shadow:var(--shadow-1);} 
 #battleMap {background:repeating-conic-gradient(from 0deg,#111 0deg,#111 90deg,#101417 90deg,#101417 180deg);background-size:60px 60px;display:block;border-radius:14px;}
 .token-layer,.fog-layer,.walls-layer,.overlay-layer {position:absolute;left:0;top:0;inset:0;}

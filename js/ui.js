@@ -1308,11 +1308,16 @@ function wireLiveCursors(){
 function renderSessionBanner(){
   const el=document.getElementById('sessionBanner'); if(!el) return;
   if(!mp.server || !mp.room){
+    const hasRelay = !!(mp.server && /^wss?:\/\//.test(mp.server));
     el.innerHTML = '<span class="grow">You are in Solo mode. Create or Join a table to play with others.</span>'+
       '<button class="accent-btn" id="bnCreate">Create Table</button>'+
-      '<button class="mini-btn" id="bnJoin">Join</button>';
+      '<button class="mini-btn" id="bnJoin">Join</button>'+
+      (hasRelay? '' : '<button class="mini-btn" id="bnHostOnline">Host Online</button>');
     el.querySelector('#bnCreate')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
     el.querySelector('#bnJoin')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
+    el.querySelector('#bnHostOnline')?.addEventListener('click', ()=>{
+      const modal=document.getElementById('welcomeModal'); if(modal){ modal.classList.remove('hidden'); toast('Paste your relay and click Save Relay'); }
+    });
     return;
   }
   const link = new URL(location.href); link.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`;
@@ -1327,7 +1332,7 @@ function renderSessionBanner(){
     `<span class="pill" title="Connected peers seen in last 12s">Peers: ${count}</span>`+
     `<span class="muted small" style="max-width:40ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${names}</span>`+
     `<span class="grow">${escapeHtml(status)}</span>`+
-    `<button class="mini-btn" id="bnCopy">Copy Invite</button>`+
+    `<button class="mini-btn" id="bnCopy">Invite</button>`+
     `<button class="mini-btn" id="bnReconnect">Reconnect</button>`;
   el.querySelector('#bnCopy')?.addEventListener('click', ()=>{
     navigator.clipboard?.writeText(link.toString()).then(()=> toast('Invite copied')).catch(()=> toast('Copy failed'));

@@ -38,15 +38,15 @@
       <header class="topbar">
         <div class="breadcrumbs" id="statusLine">Loading…</div>
   <div class="spacer"></div>
-  <label class="toggle" title="Lean mode"><input type="checkbox" id="leanToggle" /> <span>Lean</span></label>
-  <button id="sheetConfigBtn" class="mini-btn" title="Configure sheet">⚙️</button>
-  <button id="uploadBtn" class="mini-btn" title="Upload local Excel/CSV">Upload</button>
+  <label class="toggle hide-on-map" title="Lean mode"><input type="checkbox" id="leanToggle" /> <span>Lean</span></label>
+  <button id="sheetConfigBtn" class="mini-btn hide-on-map" title="Configure sheet">⚙️</button>
+  <button id="uploadBtn" class="mini-btn hide-on-map" title="Upload local Excel/CSV">Upload</button>
   <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" />
-  <a class="mini-btn" id="templateLink" href="assets/template.csv" download>Template</a>
-  <button id="sampleDataBtn" class="mini-btn" title="Insert sample data">Sample</button>
-        <input type="search" id="search" placeholder="Search…" autocomplete="off" />
-  <button id="adminToggle" class="mini-btn" title="Toggle admin editing">Admin Off</button>
-  <button id="resetAppBtn" class="mini-btn danger" title="Reset app (clears local data)">Reset</button>
+  <a class="mini-btn hide-on-map" id="templateLink" href="assets/template.csv" download>Template</a>
+  <button id="sampleDataBtn" class="mini-btn hide-on-map" title="Insert sample data">Sample</button>
+    <input type="search" id="search" class="hide-on-map" placeholder="Search…" autocomplete="off" />
+  <button id="adminToggle" class="mini-btn hide-on-map" title="Toggle admin editing">Admin Off</button>
+  <button id="resetAppBtn" class="mini-btn danger hide-on-map" title="Reset app (clears local data)">Reset</button>
         <button id="themeSwitch" title="Toggle theme">🌙</button>
       </header>
 
