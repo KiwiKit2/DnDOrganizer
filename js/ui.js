@@ -404,12 +404,19 @@ document.addEventListener('DOMContentLoaded', () => {
   if (addBtn) addBtn.addEventListener('click', addTokensFromFiltered);
   if (clearBtn) clearBtn.addEventListener('click', () => { document.getElementById('tokenLayer').innerHTML=''; saveTokens(); });
   const gridInput = document.getElementById('gridSizeInput');
-  if (gridInput) gridInput.addEventListener('change', refreshMap);
+  if (gridInput){ gridInput.value = loadPref('gridSize', gridInput.value); gridInput.addEventListener('change', (e)=> { savePref('gridSize', e.target.value); refreshMap(); }); }
+  const snapT = document.getElementById('snapToggle'); if(snapT){ const val = loadPref('snapToggle', 'true'); snapT.checked = val==='true'; snapT.addEventListener('change', ()=> savePref('snapToggle', snapT.checked?'true':'false')); }
   const layer = document.getElementById('tokenLayer');
   layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) { const additive = e.ctrlKey||e.shiftKey; selectToken(e.target, additive); dragToken(e); } });
   document.getElementById('addSingleTokenBtn')?.addEventListener('click', ()=> newAdHocToken());
   setupFog();
   loadTokens();
+  // Layer toggles
+  document.getElementById('showFogToggle')?.addEventListener('change', e=> document.getElementById('fogCanvas').style.display = e.target.checked? '' : 'none');
+  document.getElementById('showWallsToggle')?.addEventListener('change', e=> document.getElementById('wallsCanvas').style.display = e.target.checked? '' : 'none');
+  document.getElementById('showTemplatesToggle')?.addEventListener('change', e=> document.getElementById('overlayCanvas').style.display = e.target.checked? '' : 'none');
+  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')) { walls=[]; persistWalls(); drawWalls(); toast('Walls cleared'); } });
+  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')) { templates=[]; persistTemplates(); drawTemplates(); toast('Templates cleared'); } });
 });
 
 function addTokensFromFiltered() {
@@ -457,17 +464,22 @@ function dragToken(e) {
   const starts = moving.map(t=> ({t, x:parseFloat(t.style.left), y:parseFloat(t.style.top)}));
   function move(ev) {
     const dx = ev.clientX - sx; const dy = ev.clientY - sy;
-    starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
+  starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
   }
   function up() {
     document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
     // Snap to grid if enabled
     const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
     if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
+  // Optional collide with walls: simple revert if token crosses a wall segment center area
+  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); } }
     saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
   }
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 }
+
+function tokenHitsWall(tok){ const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); const r=30; return walls.some(w=> distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2) < r); }
+function distPointToSeg(px,py,x1,y1,x2,y2){ const A=px-x1,B=py-y1,C=x2-x1,D=y2-y1; const dot=A*C+B+D; const len_sq=C*C+D*D; let t = len_sq? ((A*C)+(B*D))/len_sq : 0; t=Math.max(0,Math.min(1,t)); const xx=x1+t*C, yy=y1+t*D; const dx=px-xx, dy=py-yy; return Math.sqrt(dx*dx+dy*dy); }
 
 function testImage(src, cb) {
   const img = new Image();
@@ -655,6 +667,11 @@ function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings
 // ----- Fog history (undo) -----
 function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
 function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
+
+// Pref helpers and toast
+function savePref(k,v){ try{ localStorage.setItem('pref:'+k, v);}catch{} }
+function loadPref(k,def){ try{ const v=localStorage.getItem('pref:'+k); return v==null? def : v; }catch{ return def; } }
+function toast(msg){ const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.remove('hidden'); clearTimeout(toast._tmr); toast._tmr = setTimeout(()=> t.classList.add('hidden'), 1200); }
 
 // ----- Token selection helper (updated) -----
 function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); } t.classList.add('selected'); }

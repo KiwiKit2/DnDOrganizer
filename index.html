@@ -146,6 +146,14 @@
             <button id="importBoardBtn" class="mini-btn" title="Import board state">Import</button>
             <input type="file" id="bgImageInput" accept="image/*" style="display:none" />
             <input type="file" id="importBoardInput" accept="application/json" style="display:none" />
+            <div class="layer-toggles">
+              <label><input type="checkbox" id="showFogToggle" checked /> Fog</label>
+              <label><input type="checkbox" id="showWallsToggle" checked /> Walls</label>
+              <label><input type="checkbox" id="showTemplatesToggle" checked /> Templates</label>
+              <label><input type="checkbox" id="collideWallsToggle" /> Collide</label>
+            </div>
+            <button id="clearWallsBtn" class="mini-btn" title="Delete all walls">Clear Walls</button>
+            <button id="clearTemplatesBtn" class="mini-btn" title="Delete all templates">Clear Templates</button>
           </div>
         </div>
         <div id="mapStage" class="map-stage">
@@ -155,6 +163,7 @@
           <canvas class="fog-layer" id="fogCanvas" width="1200" height="800"></canvas>
           <canvas class="overlay-layer" id="overlayCanvas" width="1200" height="800"></canvas>
         </div>
+  <div id="toast" class="toast hidden"></div>
         <div class="map-panels">
           <div class="initiative-panel" id="initiativePanel">
             <div class="panel-head">Initiative
