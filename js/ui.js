@@ -117,7 +117,6 @@ function wireEvents() {
   document.getElementById('exportCsv').addEventListener('click', ()=> Sheet.exportCsv(state.headers, state.filtered));
   wireSheetModal();
   wireUpload();
-  wireDragDrop();
   wireSample();
   wireEditing();
   wireCompendiumSearch();
@@ -932,16 +931,8 @@ function wireUpload() {
 }
 
 function wireDragDrop() {
-  const overlay = document.getElementById('dropOverlay');
-  if (!overlay) return;
-  ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e=> { e.preventDefault(); overlay.classList.remove('hidden'); }));
-  ['dragleave','drop'].forEach(ev => document.addEventListener(ev, e=> { if (e.type==='drop' || e.target===document) overlay.classList.add('hidden'); }));
-  overlay.addEventListener('click', ()=> overlay.classList.add('hidden'));
-  document.addEventListener('drop', e => {
-    e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f) { els.fileInput.files = e.dataTransfer.files; els.fileInput.dispatchEvent(new Event('change')); }
-  });
+  // Disabled global drag-and-drop overlay to allow natural drag in Kanban/Board.
+  // Users can still import via Upload button.
 }
 
 function wireSample() {
