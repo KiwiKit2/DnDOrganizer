@@ -692,6 +692,8 @@ function wireAdvancedMap(){
   document.getElementById('hostGameBtn')?.addEventListener('click', openMpModalHost);
   document.getElementById('joinGameBtn')?.addEventListener('click', openMpModalJoin);
   document.getElementById('shareGameBtn')?.addEventListener('click', copyJoinLink);
+  // Quick lightweight code-based hosting (no manual config) — generates a short room and starts Firebase if configured else local relay default placeholder
+  const quick = document.getElementById('hostGameBtn'); if(quick){ quick.addEventListener('dblclick', ()=> { quickHostQuickRoom(); }); }
   document.getElementById('playersEditToggle')?.addEventListener('change', e=> { mp.allowEdits=!!e.target.checked; broadcast({type:'perm', allowEdits: mp.allowEdits}); });
   document.getElementById('closeMpModal')?.addEventListener('click', ()=> document.getElementById('mpModal')?.classList.add('hidden'));
   document.getElementById('mpDoHost')?.addEventListener('click', ()=> startMp(true));
@@ -742,6 +744,24 @@ function wireAdvancedMap(){
   // Scenes
   wireScenes();
 }
+
+// --- Simple quick room creation (auto code) ---
+function genShortRoom(){ return Math.random().toString(36).replace(/[^a-z0-9]/g,'').slice(2,8); }
+function quickHostQuickRoom(){
+  if(mp.connected){ toast('Already online'); return; }
+  const prefs=loadMpPrefs(); const room=genShortRoom(); const name=prefs.name||'GM';
+  if(prefs.fbConfig){ mp.transport='fb'; mp.fb={config:prefs.fbConfig, app:null, db:null, unsub:null}; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectFirebase(); setMpStatus('Hosting quick room'); toast('Quick room '+room); renderSessionBanner(); }
+  else {
+    // fallback: ask user once for relay, else just local offline
+    if(!prefs.server){ toast('Save a Relay or Firebase config first (Welcome)'); return; }
+    mp.transport='ws'; mp.server=prefs.server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Hosting quick room'); toast('Quick room '+room); renderSessionBanner();
+  }
+}
+
+// --- Tab presence highlight (broadcast active view) ---
+let lastViewBroadcast=0;
+function broadcastActiveView(){ if(!mp.connected) return; const now=performance.now(); if(now-lastViewBroadcast<1500) return; lastViewBroadcast=now; const view=document.querySelector('.nav-btn.active')?.dataset.view||''; broadcast({type:'presence', id:mp.peerId, name:mp.name, role:(mp.isGM?'gm':'player'), view}); }
+setInterval(()=> broadcastActiveView(), 2000);
 
 // ----- Walls -----
 let wallMode = false, wallTempPoint=null;
