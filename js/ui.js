@@ -590,6 +590,12 @@ let multiSelect = null; // {x1,y1,x2,y2}
 let boardSettings = { visionAuto:true, bgImage:null, gmMode:false };
 function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings'); if(raw){ const parsed=JSON.parse(raw); if(parsed && typeof parsed==='object') boardSettings={...boardSettings, ...parsed}; } }catch{} }
 function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
+function applyBoardBackground(){
+  try{ const canvas=document.getElementById('battleMap'); if(!canvas) return; const ctx=canvas.getContext('2d'); if(!ctx) return; // simple background fill or image
+    ctx.save(); ctx.globalCompositeOperation='source-over'; ctx.fillStyle='#101417'; ctx.fillRect(0,0,canvas.width,canvas.height); if(boardSettings.bgImage){ const img=new Image(); img.onload=()=>{ ctx.drawImage(img,0,0,canvas.width,canvas.height); }; img.src=boardSettings.bgImage; }
+  }catch{}
+}
+async function handleBgUpload(e){ const file=e.target.files && e.target.files[0]; if(!file) return; try{ const url = await new Promise(r=>{ const rd=new FileReader(); rd.onload=()=>r(rd.result); rd.readAsDataURL(file); }); boardSettings.bgImage=url; persistBoardSettings(); applyBoardBackground(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'bg', data:url}}); toast('Background set'); }catch(err){ console.error(err); toast('BG failed'); } finally { e.target.value=''; } }
 let fogHistory = [];
 // Multiplayer session state
 let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)), transport:'ws', fb:null };
