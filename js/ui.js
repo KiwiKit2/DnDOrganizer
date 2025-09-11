@@ -590,10 +590,10 @@ let multiSelect = null; // {x1,y1,x2,y2}
 let boardSettings = { visionAuto:true, bgImage:null, gmMode:false };
 let fogHistory = [];
 // Multiplayer session state
-let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)) };
+let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)), transport:'ws', fb:null };
 
-function saveMpPrefs(){ try{ localStorage.setItem('mp:server', mp.server||''); localStorage.setItem('mp:room', mp.room||''); localStorage.setItem('mp:name', mp.name||''); localStorage.setItem('mp:isGM', mp.isGM? '1':''); }catch{} }
-function loadMpPrefs(){ try{ return { server: localStorage.getItem('mp:server')||'', room: localStorage.getItem('mp:room')||'', name: localStorage.getItem('mp:name')||'', isGM: (localStorage.getItem('mp:isGM')==='1') }; }catch{ return {server:'',room:'',name:'',isGM:false}; } }
+function saveMpPrefs(){ try{ localStorage.setItem('mp:server', mp.server||''); localStorage.setItem('mp:room', mp.room||''); localStorage.setItem('mp:name', mp.name||''); localStorage.setItem('mp:isGM', mp.isGM? '1':''); localStorage.setItem('mp:transport', mp.transport||'ws'); if(mp.fb?.config){ localStorage.setItem('mp:fbConfig', JSON.stringify(mp.fb.config)); } }catch{} }
+function loadMpPrefs(){ try{ return { server: localStorage.getItem('mp:server')||'', room: localStorage.getItem('mp:room')||'', name: localStorage.getItem('mp:name')||'', isGM: (localStorage.getItem('mp:isGM')==='1'), transport: localStorage.getItem('mp:transport')||'ws', fbConfig: (localStorage.getItem('mp:fbConfig')? JSON.parse(localStorage.getItem('mp:fbConfig')): null) }; }catch{ return {server:'',room:'',name:'',isGM:false,transport:'ws',fbConfig:null}; } }
 
 // Utility IDs
 function uid(){ return Math.random().toString(36).slice(2,9); }
@@ -694,6 +694,13 @@ function wireAdvancedMap(){
   document.getElementById('closeMpModal')?.addEventListener('click', ()=> document.getElementById('mpModal')?.classList.add('hidden'));
   document.getElementById('mpDoHost')?.addEventListener('click', ()=> startMp(true));
   document.getElementById('mpDoJoin')?.addEventListener('click', ()=> startMp(false));
+  // Save Firebase config from MP modal
+  document.getElementById('mpSaveFirebase')?.addEventListener('click', ()=>{
+    const raw=(document.getElementById('mpFirebaseConfig')?.value||'').trim();
+    if(!raw){ toast('Paste Firebase config JSON'); return; }
+    try{ const cfg=JSON.parse(raw); mp.fb={config:cfg, app:null, db:null, unsub:null}; saveMpPrefs(); toast('Firebase saved'); }
+    catch{ toast('Invalid Firebase config JSON'); }
+  });
   // Initiative
   document.getElementById('initAddBtn')?.addEventListener('click', addSelectedToInitiative);
   document.getElementById('initPrevBtn')?.addEventListener('click', ()=> cycleInitiative(-1));
@@ -702,15 +709,25 @@ function wireAdvancedMap(){
   // Global listeners for multi-select
   stage.addEventListener('mousedown', onStageMouseDown);
   window.addEventListener('keydown', e=> { if(e.key==='m' || e.key==='M') startRulerMode(); });
+  // ESC handling for walls
+  window.addEventListener('keydown', e=> { if(e.key==='Escape'){ if(wallTempPoint){ wallTempPoint=null; hideWallPreview(); showWallHint('Placement cancelled. Click to start again.'); } else if(wallEditIndex>-1){ clearWallSelection(); showWallHint('Edit cancelled.'); } else if(wallMode){ toggleWallMode(); toast('Wall mode off'); } } });
+  // Live preview while placing walls
+  document.addEventListener('mousemove', e=> { if(!wallMode || !wallTempPoint) return; const stage=document.getElementById('mapStage'); if(!stage) return; const rect=stage.getBoundingClientRect(); let x=e.clientX-rect.left, y=e.clientY-rect.top; const p=snapPoint(x,y); x=p.x; y=p.y; if(e.shiftKey){ const sn=angleSnap(wallTempPoint.x,wallTempPoint.y,x,y); x=sn.x2; y=sn.y2; } showWallPreview(wallTempPoint.x,wallTempPoint.y,x,y); });
   // Context menu
   stage.addEventListener('contextmenu', onContextMenu);
   window.addEventListener('click', hideContextMenu);
   computeVisionAuto();
-  // Auto-join via hash
+  // Auto-join via hash (supports Relay or Firebase)
   const j=parseJoinHash(); if(j){
     const prefs = loadMpPrefs();
-    mp.server = j.server; mp.room = j.room; mp.name = prefs.name || 'Player'; mp.isGM = false; mp.connected=false;
-    connectWs(); toast('Joining room '+mp.room);
+    mp.transport = j.transport||'ws';
+    mp.server = j.server||''; mp.room = j.room; mp.name = prefs.name || 'Player'; mp.isGM = false; mp.connected=false;
+    if(mp.transport==='fb'){
+      if(prefs.fbConfig){ mp.fb={config:prefs.fbConfig, app:null, db:null, unsub:null}; saveMpPrefs(); connectFirebase(); toast('Joining room '+mp.room); }
+      else { toast('Firebase config needed. Open Welcome → paste config → Save Firebase.'); }
+    } else {
+      connectWs(); toast('Joining room '+mp.room);
+    }
   }
   // Show welcome landing on first load
   initWelcomeLanding();
@@ -726,18 +743,43 @@ function wireAdvancedMap(){
 
 // ----- Walls -----
 let wallMode = false, wallTempPoint=null;
-function toggleWallMode(){ wallMode = !wallMode; const b=document.getElementById('wallModeBtn'); if(b) b.classList.toggle('active', wallMode); }
+let wallOverlayEl=null, wallPreviewEl=null, wallEditIndex=-1, wallDragHandle=null, wallEditing=false;
+function ensureWallOverlay(){
+  const stage=document.getElementById('mapStage'); if(!stage) return;
+  if(!wallOverlayEl){ wallOverlayEl=document.createElement('div'); wallOverlayEl.id='wallOverlay'; wallOverlayEl.className='wall-overlay hidden'; stage.appendChild(wallOverlayEl); }
+  if(!wallPreviewEl){ wallPreviewEl=document.createElement('div'); wallPreviewEl.id='wallPreview'; wallPreviewEl.className='wall-preview hidden'; stage.appendChild(wallPreviewEl); }
+}
+function toggleWallMode(){ wallMode = !wallMode; const b=document.getElementById('wallModeBtn'); if(b) b.classList.toggle('active', wallMode); ensureWallOverlay(); if(wallOverlayEl) wallOverlayEl.classList.toggle('hidden', !wallMode); if(!wallMode){ wallTempPoint=null; hideWallPreview(); clearWallSelection(); } else { showWallHint('Click to start a wall. Shift: snap 45°. Alt+Click existing wall: delete. Click wall segment: edit. Esc: cancel.'); } }
+function showWallHint(msg){ if(!wallOverlayEl) return; let hint=wallOverlayEl.querySelector('.wall-hint'); if(!hint){ hint=document.createElement('div'); hint.className='wall-hint'; wallOverlayEl.appendChild(hint);} hint.textContent=msg; }
+function showWallPreview(x1,y1,x2,y2){ ensureWallOverlay(); if(!wallPreviewEl) return; wallPreviewEl.classList.remove('hidden'); const dx=x2-x1, dy=y2-y1; const len=Math.sqrt(dx*dx+dy*dy); wallPreviewEl.style.left=Math.min(x1,x2)+'px'; wallPreviewEl.style.top=Math.min(y1,y2)+'px'; wallPreviewEl.style.width=Math.abs(dx)+'px'; wallPreviewEl.style.height=Math.abs(dy)+'px'; wallPreviewEl.dataset.x1=x1; wallPreviewEl.dataset.y1=y1; wallPreviewEl.dataset.x2=x2; wallPreviewEl.dataset.y2=y2; }
+function hideWallPreview(){ if(wallPreviewEl) wallPreviewEl.classList.add('hidden'); }
+function snapPoint(x,y){ const grid=+document.getElementById('gridSizeInput')?.value||50; const snap=document.getElementById('snapToggle')?.checked; return snap? {x:Math.round(x/grid)*grid, y:Math.round(y/grid)*grid} : {x,y}; }
+function angleSnap(x1,y1,x2,y2){ // Snap to 45 deg if Shift
+  const dx=x2-x1, dy=y2-y1; const ang=Math.atan2(dy,dx); const step=Math.PI/4; const snapAng=Math.round(ang/step)*step; const len=Math.sqrt(dx*dx+dy*dy); return {x2:x1+Math.cos(snapAng)*len, y2:y1+Math.sin(snapAng)*len}; }
+function clearWallSelection(){ wallEditIndex=-1; document.getElementById('wallsCanvas')?.classList.remove('editing'); const existing=document.querySelectorAll('.wall-handle'); existing.forEach(e=>e.remove()); }
+function selectWall(idx){ clearWallSelection(); if(idx<0||idx>=walls.length) return; wallEditIndex=idx; const w=walls[idx]; const stage=document.getElementById('mapStage'); if(!stage) return; const mk=(x,y,cls)=>{ const h=document.createElement('div'); h.className='wall-handle '+cls; h.style.left=(x-5)+'px'; h.style.top=(y-5)+'px'; h.dataset.kind=cls; h.addEventListener('mousedown', startWallHandleDrag); stage.appendChild(h);}; mk(w.x1,w.y1,'start'); mk(w.x2,w.y2,'end'); showWallHint('Dragging endpoints. Delete: Alt+Click wall. Esc: exit edit.');
+}
+function startWallHandleDrag(e){ if(wallEditIndex<0) return; wallDragHandle=e.target; wallEditing=true; e.preventDefault(); const move=(ev)=>{ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); let x=ev.clientX-rect.left, y=ev.clientY-rect.top; const p=snapPoint(x,y); x=p.x; y=p.y; const w=walls[wallEditIndex]; if(wallDragHandle.dataset.kind==='start'){ w.x1=x; w.y1=y; } else { w.x2=x; w.y2=y; } persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); selectWall(wallEditIndex); };
+  const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); wallEditing=false; wallDragHandle=null; };
+  document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+}
 function onStageMouseDown(e){
   const stage = document.getElementById('mapStage');
   if(e.target.closest('.token') || e.target.closest('.token-context')) return;
   if(wallMode){
     if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
     const rect = stage.getBoundingClientRect();
-    const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+    let x = e.clientX - rect.left; let y = e.clientY - rect.top; const p=snapPoint(x,y); x=p.x; y=p.y;
+    // Click existing wall to edit
+    const nearest = findNearestWall(x,y,8);
+    if(nearest>-1 && !wallTempPoint && !e.altKey){ selectWall(nearest); e.preventDefault(); return; }
     // Alt+click to delete nearest wall
-  if(e.altKey){ const idx = findNearestWall(x,y,10); if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Wall removed'); } return; }
-    if(!wallTempPoint){ wallTempPoint={x,y}; }
-  else { walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x,y2:y}); wallTempPoint=null; persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); }
+    if(e.altKey){ const idx = nearest; if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Wall removed'); clearWallSelection(); } return; }
+    if(!wallTempPoint){ wallTempPoint={x,y}; hideWallPreview(); showWallHint('First point set. Click to finish. Esc cancels.'); }
+    else {
+      let x2=x, y2=y; if(e.shiftKey){ const sn=angleSnap(wallTempPoint.x,wallTempPoint.y,x,y); x2=sn.x2; y2=sn.y2; }
+      walls.push({x1:wallTempPoint.x,y1:wallTempPoint.y,x2:x2,y2:y2}); wallTempPoint=null; hideWallPreview(); persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); showWallHint('Wall added. Click to start another or Esc to exit.');
+    }
     e.preventDefault(); return;
   }
   // Multi-select start (Shift)
@@ -786,7 +828,7 @@ let _visionTmr=null; function computeVisionAuto(){ if(!boardSettings.visionAuto)
 function revealVisionForToken(t){ const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); const poly = computeLOS(x,y,r); drawPoly(fogCtx, poly, true); }
 function computeLOS(cx,cy,r){ const near = walls.filter(w=> boxDistToPoint(w, cx, cy) <= r+80); const pts=[]; const angles=[]; near.forEach(w=> { const a1=Math.atan2(w.y1-cy,w.x1-cx); const a2=Math.atan2(w.y2-cy,w.x2-cx); angles.push(a1-0.0005,a1,a1+0.0005,a2-0.0005,a2,a2+0.0005); }); for(let a=0;a<Math.PI*2;a+=Math.PI/180) angles.push(a); const uniq=[...new Set(angles.map(a=> +a.toFixed(4)))]; uniq.sort((a,b)=>a-b); uniq.forEach(theta=> { const end = castRay(cx,cy,theta,r,near); pts.push(end); }); return pts; }
 function castRay(x,y,ang,r,segments){ const dx=Math.cos(ang), dy=Math.sin(ang); let minT=1e9; let hitX=x+dx*r, hitY=y+dy*r; segments.forEach(w=> { const res = segIntersect(x,y,dx,dy, w.x1,w.y1,w.x2,w.y2); if(res && res.t<minT && res.t>=0 && res.t<=r){ minT=res.t; hitX=x+dx*res.t; hitY=y+dy*res.t; } }); return {x:hitX,y:hitY}; }
-function boxDistToPoint(w,px,py){ const minx=Math.min(w.x1,w.x2), maxx=Math.max(w.x1,w.x2); const miny=Math.min(w.y1,w.y2), maxy=Math.max(w.y1,w.y2); const nx=Math.max(minx,Math.min(px,maxx)); const ny=Math.max(miny,Math.min(py,maxy)); const dx=nx-px, dy=ny-py; return Math.hypot(dx,dy); }
+function boxDistToPoint(w,px,py){ const minx=Math.min(w.x1,w.x2), maxx=Math.max(w.x1,w.x2); const miny=Math.min(w.y1,w.y2), maxy=Math.max(w.y1,w.y2); const nx=Math.max(minx,Math.min(px,maxx)); const ny=Math.max(miny,Math.min(py,maxy)); const dx=px-nx, dy=py-ny; return Math.hypot(dx,dy); }
 function segIntersect(x,y,dx,dy, x1,y1,x2,y2){ // ray (x,y)+(t)(dx,dy) with segment (x1,y1)-(x2,y2)
   const sx=x2-x1, sy=y2-y1; const denom = dx*sy - dy*sx; if(Math.abs(denom) < 1e-6) return null; const t = ((x1 - x)*sy - (y1 - y)*sx)/denom; const u = ((x1 - x)*dy - (y1 - y)*dx)/denom; if(t>=0 && u>=0 && u<=1) return {t,u}; return null; }
 function drawPoly(ctx, pts, close){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y); if(close) ctx.closePath(); ctx.fill(); }
@@ -809,203 +851,44 @@ function hideContextMenu(){ document.getElementById('tokenContextMenu')?.remove(
 function duplicateToken(tok){ if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.dataset.id = uid(); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); updateTokenBadges(d); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){ const payload={ id:d.dataset.id, x:parseFloat(d.style.left), y:parseFloat(d.style.top), title:d.title, type:d.dataset.type||'', hp:d.dataset.hp||'', vision:d.dataset.vision||'', bg:d.style.backgroundImage||'' }; broadcast({type:'op', op:{kind:'tokenAdd', token: payload}}); } }
 function updateTokenBadges(tok){ let stack=tok.querySelector('.badge-stack'); if(!stack){ stack=document.createElement('div'); stack.className='badge-stack'; tok.appendChild(stack); } stack.innerHTML=''; if(tok.dataset.hp){ const hp=document.createElement('div'); hp.className='hp-badge'; hp.textContent=tok.dataset.hp; stack.appendChild(hp); } }
 
-// ----- Ruler -----
-let rulerActive=false; let rulerStart=null; let rulerEl=null;
-function startRulerMode(){ rulerActive=true; document.getElementById('rulerBtn')?.classList.add('active'); const stage=document.getElementById('mapStage'); stage.addEventListener('mousedown', rulerDown,{once:true}); }
-function rulerDown(e){ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); rulerStart={x:e.clientX-rect.left,y:e.clientY-rect.top}; rulerEl=document.createElement('div'); rulerEl.className='ruler-line'; stage.appendChild(rulerEl); function mv(ev){ const grid = +document.getElementById('gridSizeInput')?.value||50; const snap = document.getElementById('snapToggle')?.checked; const rx=ev.clientX-rect.left, ry=ev.clientY-rect.top; const ex=snap? Math.round(rx/grid)*grid : rx; const ey=snap? Math.round(ry/grid)*grid : ry; const sx=snap? Math.round(rulerStart.x/grid)*grid : rulerStart.x; const sy=snap? Math.round(rulerStart.y/grid)*grid : rulerStart.y; const dx=ex-sx, dy=ey-sy; const len=Math.sqrt(dx*dx+dy*dy); const squares=(len/grid).toFixed(1); rulerEl.textContent=`${len.toFixed(0)} px • ${squares} squares`; const left=Math.min(ex,sx), top=Math.min(ey,sy); Object.assign(rulerEl.style,{left:left+'px',top:top+'px',width:Math.abs(dx)+'px',height:Math.abs(dy)+'px'}); } function up(){ stage.removeEventListener('mousemove',mv); stage.removeEventListener('mouseup',up); setTimeout(()=>{ rulerEl?.remove(); rulerActive=false; document.getElementById('rulerBtn')?.classList.remove('active'); },1500); } stage.addEventListener('mousemove',mv); stage.addEventListener('mouseup',up); }
-
-// ----- Background Image -----
-function handleBgUpload(e){ const file=e.target.files[0]; if(!file) return; if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.target.value=''; return; } const reader=new FileReader(); reader.onload=ev=> { boardSettings.bgImage=ev.target.result; persistBoardSettings(); applyBoardBackground(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'bg', data: boardSettings.bgImage}}); }; reader.readAsDataURL(file); e.target.value=''; }
-function applyBoardBackground(){ const c=document.getElementById('battleMap'); if(!c) return; if(boardSettings.bgImage){ c.style.backgroundImage=`url(${boardSettings.bgImage})`; c.parentElement.classList.add('background-image'); } else { c.style.backgroundImage=''; c.parentElement.classList.remove('background-image'); } }
-
-// ----- Export / Import -----
-function exportBoardState(){ const payload={ tokens:[...document.querySelectorAll('.token')].map(t=>({x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',hp:t.dataset.hp||'',vision:t.dataset.vision||'',bg:t.style.backgroundImage||''})), walls, templates, initiative, boardSettings, fog: localStorage.getItem('fogData')||null }; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.download='board-state.json'; a.href=URL.createObjectURL(blob); a.click(); }
-function importBoardState(e){ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=ev=> { try{ const data=JSON.parse(ev.target.result); if(data.tokens){ localStorage.setItem('mapTokens', JSON.stringify(data.tokens)); loadTokens(); } if(data.walls){ walls=data.walls; persistWalls(); drawWalls(); } if(data.templates){ templates=data.templates; persistTemplates(); drawTemplates(); } if(data.initiative){ initiative=data.initiative; persistInitiative(); renderInitiative(); } if(data.boardSettings){ boardSettings=data.boardSettings; persistBoardSettings(); applyBoardBackground(); } if(data.fog){ localStorage.setItem('fogData', data.fog); loadFog(); } computeVisionAuto(); }catch(err){ alert('Import failed: '+err.message); } finally { e.target.value=''; }; }; reader.readAsText(file); }
-
-// ----- Scenes (save/load snapshots) -----
-function wireScenes(){ const sel=document.getElementById('sceneSelect'); const saveB=document.getElementById('sceneSaveBtn'); const loadB=document.getElementById('sceneLoadBtn'); const manageB=document.getElementById('sceneManageBtn'); if(!sel||!saveB||!loadB||!manageB) return;
-  const listEl=document.getElementById('sceneList'); const panel=document.getElementById('scenePanel'); const close=document.getElementById('scenePanelClose'); const delAll=document.getElementById('sceneDeleteAllBtn');
-  function loadScenes(){ try{ return JSON.parse(localStorage.getItem('mapScenes')||'[]'); }catch{ return []; } }
-  function saveScenes(arr){ try{ localStorage.setItem('mapScenes', JSON.stringify(arr)); }catch{} }
-  function refreshSelect(){ const arr=loadScenes(); sel.innerHTML = arr.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join(''); }
-  function refreshPanel(){ if(!panel||!listEl) return; const arr=loadScenes(); listEl.innerHTML=''; arr.forEach((s,i)=>{ const li=document.createElement('li'); li.innerHTML = `<span class="title">${escapeHtml(s.name)}</span><div class="panel-actions"><button class="mini-btn" data-load="${i}">Load</button><button class="mini-btn danger" data-del="${i}">Del</button></div>`; listEl.appendChild(li); }); }
-  refreshSelect();
-  saveB.addEventListener('click', ()=>{ const name=prompt('Scene name:'); if(!name) return; const arr=loadScenes(); arr.push({ name, data: exportStateObj() }); saveScenes(arr); refreshSelect(); });
-  loadB.addEventListener('click', ()=>{ const idx=parseInt(sel.value||'-1'); const arr=loadScenes(); if(idx>=0 && arr[idx]){ importStateObj(arr[idx].data); computeVisionAuto(); }});
-  manageB.addEventListener('click', ()=>{ refreshPanel(); panel?.classList.remove('hidden'); });
-  close?.addEventListener('click', ()=> panel?.classList.add('hidden'));
-  delAll?.addEventListener('click', ()=>{ if(confirm('Delete all scenes?')){ localStorage.removeItem('mapScenes'); refreshSelect(); refreshPanel(); }});
-  listEl?.addEventListener('click', (e)=>{
-    const btn=e.target.closest('button'); if(!btn) return; const arr=loadScenes(); const loadIdx=btn.dataset.load? parseInt(btn.dataset.load): -1; const delIdx=btn.dataset.del? parseInt(btn.dataset.del): -1;
-    if(loadIdx>-1 && arr[loadIdx]){ importStateObj(arr[loadIdx].data); computeVisionAuto(); }
-    if(delIdx>-1){ arr.splice(delIdx,1); saveScenes(arr); refreshSelect(); refreshPanel(); }
-  });
+/*
+function dragToken(e) {
+  const token = e.target;
+  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
+  let sx = e.clientX, sy = e.clientY;
+  const selected = [...document.querySelectorAll('.token.selected')];
+  const moving = selected.length>1 && selected.includes(token) ? selected : [token];
+  const starts = moving.map(t=> ({t, x:parseFloat(t.style.left), y:parseFloat(t.style.top)}));
+  function move(ev) {
+    const dx = ev.clientX - sx; const dy = ev.clientY - sy;
+  starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
+  }
+  function up() {
+    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    // Snap to grid if enabled
+    const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
+    if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
+  // Optional collide with walls: simple revert if token crosses a wall segment center area
+  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){
+      // try to slide to a nearby free spot
+      moving.forEach(s=> { const alt=findSlidePosition(parseFloat(s.style.left), parseFloat(s.style.top), 32); if(alt){ s.style.left=alt.x+'px'; s.style.top=alt.y+'px'; } });
+      // if still blocked, revert
+      if(moving.some(t=> tokenHitsWall(t))){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); }
+    } }
+  saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
+  // Broadcast moves to peers
+  moving.forEach(t=> { if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'move', id:(t.dataset.id||''), x:parseFloat(t.style.left), y:parseFloat(t.style.top)}}); });
+  }
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
 }
-
-// ----- Persistence helpers -----
-function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
-function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings'); if(raw) boardSettings=JSON.parse(raw); }catch{} }
-function applyGmMode(){ document.body.classList.toggle('gm-mode', !!boardSettings.gmMode); const fog=document.getElementById('fogCanvas'); if(!fog) return; fog.style.visibility = boardSettings.gmMode? 'hidden' : 'visible'; const gmToggle=document.getElementById('gmModeToggle'); if(gmToggle) gmToggle.checked = !!boardSettings.gmMode; }
-
-// ----- Fog history (undo) -----
-function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
-function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
-
-// Pref helpers and toast
-function savePref(k,v){ try{ localStorage.setItem('pref:'+k, v);}catch{} }
-function loadPref(k,def){ try{ const v=localStorage.getItem('pref:'+k); return v==null? def : v; }catch{ return def; } }
-function toast(msg){ const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.remove('hidden'); clearTimeout(toast._tmr); toast._tmr = setTimeout(()=> t.classList.add('hidden'), 1200); }
-
-// Export PNG snapshot of the map (simple composite)
-function exportPngSnapshot(){ const map=document.getElementById('battleMap'); const wallsC=document.getElementById('wallsCanvas'); const fogC=document.getElementById('fogCanvas'); const overC=document.getElementById('overlayCanvas'); const tokenLayer=document.getElementById('tokenLayer'); const W=map.width, H=map.height; const out=document.createElement('canvas'); out.width=W; out.height=H; const ctx=out.getContext('2d');
-  // Background fill (patterned board color)
-  ctx.fillStyle = '#101417'; ctx.fillRect(0,0,W,H);
-  // Walls
-  if(wallsC) ctx.drawImage(wallsC,0,0);
-  // Tokens (approximate by drawing circles with stroke color and background)
-  [...tokenLayer.querySelectorAll('.token')].forEach(t=> {
-    const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const r=30;
-    ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.clip();
-    const bg=t.style.backgroundImage; const m=bg&&bg.match(/url\("?(.*?)"?\)/);
-    if(m&&m[1]){ /* Note: External images may be tainted; we still draw a fallback */ ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
-    else { ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
-    ctx.restore(); ctx.strokeStyle=getTokenStroke(t); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
-  });
-  // Templates
-  if(overC) ctx.drawImage(overC,0,0);
-  // Optionally fog (omit when GM mode to share clean image)
-  if(!boardSettings.gmMode && fogC) ctx.drawImage(fogC,0,0);
-  const a=document.createElement('a'); a.download='map.png'; a.href=out.toDataURL('image/png'); a.click();
-}
-function getTokenStroke(t){ if(t.dataset.type==='enemy') return '#ff5576'; if(t.dataset.type==='player') return '#4f8dff'; return getComputedStyle(document.body).getPropertyValue('--accent')||'#4f8dff'; }
-
-// ----- Token selection helper (updated) -----
-function selectToken(t, additive){ if(!additive){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); } t.classList.add('selected'); }
-
-// Keyboard actions
-window.addEventListener('keydown', e=> { if(e.key==='Delete'){ const sel=[...document.querySelectorAll('.token.selected')]; if(sel.length){ if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const ids=sel.map(t=> t.dataset.id||''); sel.forEach(t=> t.remove()); saveTokens(); computeVisionAuto(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokenDel', ids}}); } } });
-
-// Helpers and keybinds for walls
-function findNearestWall(x,y,thresh){ let best=-1,bd=1e9; walls.forEach((w,i)=>{ const d=distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2); if(d<bd){ bd=d; best=i; } }); return bd<=thresh? best : -1; }
-let wallsRedo=[];
-window.addEventListener('keydown', e=> { if(e.ctrlKey && (e.key==='z' || e.key==='Z')){ if(walls.length){ wallsRedo.push(walls.pop()); persistWalls(); drawWalls(); toast('Undo wall'); } e.preventDefault(); } else if(e.ctrlKey && (e.key==='y' || e.key==='Y')){ if(wallsRedo.length){ walls.push(wallsRedo.pop()); persistWalls(); drawWalls(); toast('Redo wall'); } e.preventDefault(); } });
-
-function wireUpload() {
-  els.uploadBtn.addEventListener('click', ()=> els.fileInput.click());
-  els.fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      els.statusLine.textContent = 'Reading '+file.name+'…';
-      let objects = [];
-      if (file.name.match(/\.xlsx?$|\.xls$/i)) {
-        const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, { type:'array' });
-        const first = wb.SheetNames[0];
-        const sheet = wb.Sheets[first];
-        objects = XLSX.utils.sheet_to_json(sheet, { defval:'' });
-      } else { // csv
-        const text = await file.text();
-        const rows = text.split(/\r?\n/).filter(l=>l.trim()).map(l=> l.split(',').map(s=> s.replace(/^"|"$/g,'')) );
-        const headers = rows.shift();
-        objects = rows.map(r=> Object.fromEntries(headers.map((h,i)=>[h,r[i]||''])));
-      }
-      if (!objects.length) throw new Error('No rows');
-      state.headers = Object.keys(objects[0]);
-      state.objects = objects;
-      state.numericCols = state.headers.filter(h=> objects.some(o=> /^\d+(\.\d+)?$/.test((o[h]||'').toString().trim())));
-      state.lastLoad = new Date();
-      buildTable();
-      buildColumnFilter();
-      applyFilters();
-      buildKanban();
-      Persist.saveCache(state);
-      els.statusLine.textContent = 'Loaded local file '+file.name+' ('+state.objects.length+' rows)';
-    } catch(err){
-      console.error(err);
-      els.statusLine.textContent = 'Upload failed: '+err.message;
-    } finally {
-      e.target.value='';
-    }
-  });
-}
-
-function wireDragDrop() {
-  // Disabled global drag-and-drop overlay to allow natural drag in Kanban/Board.
-  // Users can still import via Upload button.
-}
-
-function wireSample() {
-  if (!els.sampleBtn) return;
-  els.sampleBtn.addEventListener('click', ()=> {
-    const sample = [
-  { Name:'Aria', Type:'Player', Status:'Active', HP:24, Notes:'Half-elf bard', Image:'' },
-  { Name:'Borin', Type:'Player', Status:'Active', HP:31, Notes:'Dwarf fighter', Image:'' },
-  { Name:'Goblin', Type:'Enemy', Status:'Spotted', HP:7, Notes:'Ambusher', Image:'' },
-  { Name:'Potion of Healing', Type:'Item', Status:'Inventory', Notes:'2d4+2 restore', Image:'' }
-    ];
-    state.headers = Object.keys(sample[0]);
-    state.objects = sample;
-    state.filtered = [...sample];
-    buildTable();
-    buildColumnFilter();
-    applyFilters();
-    buildKanban();
-    Persist.saveCache(state);
-    els.statusLine.textContent = 'Loaded sample data';
-  });
-}
-
-// Editing modal
-function wireEditing() {
-  document.getElementById('closeEditorModal')?.addEventListener('click', closeEditor);
-  document.getElementById('saveRowBtn')?.addEventListener('click', saveEditor);
-  document.getElementById('deleteRowBtn')?.addEventListener('click', deleteEditor);
-}
-
-let editorRow = null;
-function openEditor(rowObj) {
-  editorRow = rowObj;
-  const modal = document.getElementById('editorModal');
-  const form = document.getElementById('editForm');
-  form.innerHTML = state.headers.map(h=> `<label>${h}<input name="${h}" value="${(rowObj[h]||'').toString().replace(/"/g,'&quot;')}"></label>`).join('');
-  modal.classList.remove('hidden');
-}
-function closeEditor() { document.getElementById('editorModal').classList.add('hidden'); }
-function saveEditor() {
-  if (!editorRow) return; const form = document.getElementById('editForm');
-  const data = Object.fromEntries([...form.querySelectorAll('input,textarea')].map(i=> [i.name, i.value]));
-  Object.assign(editorRow, data);
-  applyFilters(); buildKanban(); buildCompendium(); Persist.saveCache(state); closeEditor();
-}
-function deleteEditor() {
-  if (!editorRow) return; state.objects = state.objects.filter(o=> o!==editorRow); applyFilters(); buildKanban(); buildCompendium(); Persist.saveCache(state); closeEditor();
-}
-
-function wireCompendiumSearch() {
-  const inp = document.getElementById('compSearch');
-  if (!inp || !window.buildCompendium) return;
-  const orig = window.buildCompendium;
-  window.buildCompendium = function() { orig(); const term = inp.value.toLowerCase(); if (!term) return; document.querySelectorAll('#compGallery .grid-token').forEach(c=> { if (!c.textContent.toLowerCase().includes(term)) c.style.display='none'; else c.style.display='flex'; }); };
-  inp.addEventListener('input', ()=> window.buildCompendium());
-}
-function wireNewEntry(){
-  const btn = document.getElementById('newEntryBtn');
-  if(!btn) return;
-  btn.addEventListener('click', () => {
-    if(!adminMode){ alert('Enable Admin mode to add entries'); return; }
-    // create blank row object with all headers
-    if(!state.headers.length){ alert('Load sheet data first'); return; }
-    const blank = Object.fromEntries(state.headers.map(h=>[h,'']));
-    state.objects.push(blank); state.filtered = [...state.objects];
-    editorRow = blank; openEditor(blank);
-    markDirty(); Persist.saveCache(state); buildKanban(); buildCompendium(); renderRows();
-  });
-}
+*/
 
 // Moves feature (lightweight list independent from sheet)
 let moves = JSON.parse(localStorage.getItem('movesStore')||'[]');
 let editingMove = null;
+let movesUndoStack=[]; let movesRedoStack=[]; // new undo/redo stacks
+function snapshotMoves(){ try{return JSON.stringify(moves);}catch{return '[]';} }
+function pushMovesUndo(){ movesUndoStack.push(snapshotMoves()); if(movesUndoStack.length>50) movesUndoStack.shift(); movesRedoStack.length=0; }
 function wireMoves(){
   const addBtn = document.getElementById('addMoveBtn');
   if(!addBtn) return; // view not present
@@ -1022,6 +905,7 @@ function saveMoveFromForm(){
   const data = Object.fromEntries([...form.querySelectorAll('input,textarea')].map(i=>[i.name,i.value.trim()]));
   if(!data.name){ alert('Name required'); return; }
   data.tags = data.tags? data.tags.split(/[,;]+/).map(t=>t.trim()).filter(Boolean):[];
+  pushMovesUndo();
   if(editingMove){ Object.assign(editingMove,data); }
   else moves.push(data);
   persistMoves();
@@ -1035,32 +919,23 @@ function renderMoves(){
   rows.forEach(m=> {
     const tr=document.createElement('tr');
     tr.innerHTML = `<td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.description||'')}</td><td>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</td><td><button class='mini-btn' data-act='edit'>Edit</button><button class='mini-btn danger' data-act='del'>Del</button></td>`;
-    tr.querySelector('[data-act=edit]').addEventListener('click', ()=> { editingMove = m; fillMoveForm(m); });
-    tr.querySelector('[data-act=del]').addEventListener('click', ()=> { if(confirm('Delete move?')) { moves = moves.filter(x=>x!==m); persistMoves(); renderMoves(); } });
+//     tr.querySelector('[data-act=edit]').addEventListener('click', ()=> { editingMove = m; fillMoveForm(m); });
+    tr.querySelector('[data-act=del]').addEventListener('click', ()=> { if(confirm('Delete move?')) { pushMovesUndo(); moves = moves.filter(x=>x!==m); persistMoves(); renderMoves(); } });
     body.appendChild(tr);
   });
   document.getElementById('movesEmpty')?.classList.toggle('hidden', rows.length>0);
 }
 function fillMoveForm(m){
   const f = document.getElementById('moveForm'); if(!f) return;
-  f.name.value = m.name||''; f.description.value = m.description||''; f.tags.value = (m.tags||[]).join(', '); f.image.value = m.image||'';
+  f.name.value = m.name||''; f.description.value = m.description||''; f.tags.value = (m.tags||[]).join(', '); f.image.value = m.image||''; 
 }
 function persistMoves(){ localStorage.setItem('movesStore', JSON.stringify(moves)); }
-function exportMovesExcel(){
-  if(!moves.length){ alert('No moves'); return; }
-  const rows = moves.map(m=> ({ Name:m.name, Description:m.description, Tags:(m.tags||[]).join(', '), Image:m.image||'' }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Moves');
-  XLSX.writeFile(wb,'moves.xlsx');
-}
-async function importMovesExcel(e){
-  const file = e.target.files[0]; if(!file) return;
-  try{ const buf = await file.arrayBuffer(); const wb = XLSX.read(buf,{type:'array'}); const ws = wb.Sheets[wb.SheetNames[0]]; const json = XLSX.utils.sheet_to_json(ws,{defval:''});
-    moves = json.map(r=> ({ name:r.Name||r.name||'', description:r.Description||r.description||'', tags:(r.Tags||'').split(/[,;]+/).map(t=>t.trim()).filter(Boolean), image:r.Image||r.image||'' }));
-    persistMoves(); renderMoves();
-  }catch(err){ console.error(err); alert('Import failed: '+err.message);} finally { e.target.value=''; }
-}
-function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+// Global moves undo/redo (Ctrl+Z / Ctrl+Y) outside form fields
+window.addEventListener('keydown', e=> {
+  if(e.target && (e.target.tagName==='INPUT' || e.target.tagName==='TEXTAREA')) return;
+  if(e.ctrlKey && (e.key==='z' || e.key==='Z')){ if(movesUndoStack.length){ const prev=movesUndoStack.pop(); movesRedoStack.push(snapshotMoves()); try{ moves=JSON.parse(prev)||[]; }catch{ moves=[]; } persistMoves(); renderMoves(); editingMove=null; } e.preventDefault(); }
+  else if(e.ctrlKey && (e.key==='y' || e.key==='Y')){ if(movesRedoStack.length){ const next=movesRedoStack.pop(); movesUndoStack.push(snapshotMoves()); try{ moves=JSON.parse(next)||[]; }catch{ moves=[]; } persistMoves(); renderMoves(); editingMove=null; } e.preventDefault(); }
+});
 
 // Admin toggle (simple gate for editing buttons)
 let adminMode = false;
@@ -1076,22 +951,37 @@ function updateAdminVisibility(){
 }
 
 // ---------------- Multiplayer helpers ----------------
-function openMpModalHost(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); const lbl=document.getElementById('mpRoleLabel'); if(lbl) lbl.textContent='Host (GM)'; }
-function openMpModalJoin(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); const lbl=document.getElementById('mpRoleLabel'); if(lbl) lbl.textContent='Join as Player'; }
+function openMpModalHost(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); preloadMpModal(); }
+function openMpModalJoin(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); preloadMpModal(); }
+function preloadMpModal(){ const prefs=loadMpPrefs(); const useFb=document.getElementById('mpUseFirebase'); const ta=document.getElementById('mpFirebaseConfig'); if(useFb) useFb.checked = (prefs.transport==='fb'); if(ta && prefs.fbConfig) ta.value = JSON.stringify(prefs.fbConfig); }
 function startMp(asHost){
-  const server=(document.getElementById('mpServerUrl')?.value||'').trim();
+  const useFb = !!document.getElementById('mpUseFirebase')?.checked;
   const room=(document.getElementById('mpRoomCode')?.value||'').trim() || Math.random().toString(36).slice(2,8);
   const name=(document.getElementById('mpName')?.value||'').trim() || (asHost? 'GM':'Player');
-  if(!server){ toast('Enter server URL (ws:// or wss://)'); return; }
-  mp.server=server; mp.room=room; mp.name=name; mp.isGM=!!asHost; mp.connected=false; saveMpPrefs(); connectWs();
-  document.getElementById('mpModal')?.classList.add('hidden');
+  if(useFb){
+    const cfgRaw=(document.getElementById('mpFirebaseConfig')?.value||'').trim();
+    if(!cfgRaw){ toast('Paste Firebase config'); return; }
+    let cfg=null; try{ cfg=JSON.parse(cfgRaw); }catch{ toast('Invalid Firebase config JSON'); return; }
+    mp.transport='fb'; mp.fb = { config: cfg, app:null, db:null, unsub:null }; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectFirebase(); setMpStatus('Connecting…');
+    toast('Hosting on Firebase');
+  } else if(server){
+    // Online host as GM
+    mp.transport='ws'; mp.server=server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Connecting…');
+    toast('Hosting as GM');
+  } else {
+    // Fallback: local solo GM session (no relay yet)
+    mp.transport='ws'; mp.server=''; mp.room=''; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); setMpStatus('Solo');
+    toast('Created local table (offline). Save Relay or Firebase to go online.');
+  }
+  // Jump to Map view for immediate feedback
+  const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
   renderSessionBanner();
 }
-function copyJoinLink(){ if(!mp.server || !mp.room){ toast('Start a session first'); return; } const url=new URL(location.href); url.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`; navigator.clipboard?.writeText(url.toString()).then(()=> toast('Join link copied')).catch(()=> toast('Copy failed'));
+function copyJoinLink(){ if(!mp.room){ toast('Start a session first'); return; } const url=new URL(location.href); if(mp.transport==='fb'){ url.hash = `#join=fb|${encodeURIComponent(mp.room)}`; } else { url.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`; } navigator.clipboard?.writeText(url.toString()).then(()=> toast('Join link copied')).catch(()=> toast('Copy failed'));
 }
-function parseJoinHash(){ try{ const h=location.hash||''; const m=h.match(/#join=([^|]+)\|(.+)/); if(!m) return null; return {server:decodeURIComponent(m[1]), room:decodeURIComponent(m[2])}; }catch{ return null; } }
+function parseJoinHash(){ try{ const h=location.hash||''; const fb=h.match(/#join=fb\|(.+)/); if(fb) return { transport:'fb', server:'', room: decodeURIComponent(fb[1]) }; const m=h.match(/#join=([^|]+)\|(.+)/); if(!m) return null; return { transport:'ws', server:decodeURIComponent(m[1]), room:decodeURIComponent(m[2])}; }catch{ return null; } }
 function setMpStatus(txt){ const el=document.getElementById('mpStatus'); if(el) el.textContent = txt; renderSessionBanner(); }
-function connectWs(){ try{
+function connectWs(){ if(mp.transport!=='ws') return; try{
     const url = new URL(mp.server);
     if(url.protocol!=='ws:' && url.protocol!=='wss:'){ toast('Server must be ws:// or wss://'); return; }
   }catch{ toast('Invalid server URL'); return; }
@@ -1113,6 +1003,35 @@ function connectWs(){ try{
   ws.onerror = ()=>{ setMpStatus('Error'); };
   ws.onmessage = ev=> { try{ const msg = JSON.parse(ev.data); handleMpMessage(msg); }catch(e){ console.warn('bad msg', e); } };
 }
+// Firebase transport
+function connectFirebase(){ if(mp.transport!=='fb') return; try{
+    // Require compat SDKs included in index.html
+    if(!window.firebase || !window.firebase.initializeApp){ toast('Firebase SDK not loaded'); return; }
+    if(!mp.fb?.app){ mp.fb.app = firebase.initializeApp(mp.fb.config, 'dndex-app'); }
+    mp.fb.db = firebase.database();
+    // connection state
+    const roomBase = `rooms/${mp.room}`;
+    // presence: write this peer under /presence and auto-remove on disconnect
+    const myRef = mp.fb.db.ref(`${roomBase}/presence/${mp.peerId}`);
+    myRef.onDisconnect().remove();
+    myRef.set({ name: mp.name, role: (mp.isGM?'gm':'player'), ts: firebase.database.ServerValue.TIMESTAMP });
+    // listen to presence
+    mp.fb.db.ref(`${roomBase}/presence`).on('value', snap=>{
+      const val=snap.val()||{}; presence.peers.clear(); Object.entries(val).forEach(([id,p])=> presence.peers.set(id,{ name:p.name||'Player', role:p.role||'player', ts: Date.now() })); renderSessionBanner();
+    });
+    // ops stream: a simple append-only log under /events; write last seen key to skip own echoes
+    const evRef = mp.fb.db.ref(`${roomBase}/events`);
+    let inited=false; evRef.limitToLast(1000).on('child_added', s=>{
+      const msg=s.val(); if(!msg || msg._from===mp.peerId) return; // skip self
+      handleMpMessage(msg);
+    });
+    // send initial state if GM
+    if(mp.isGM){ const snapshot = exportStateObj(); fbBroadcast({type:'state', data:snapshot}); }
+    mp.connected = true; setMpStatus('Connected'); renderSessionBanner();
+  }catch(e){ console.error(e); setMpStatus('Error'); }
+}
+function fbBroadcast(msg){ if(mp.transport!=='fb') return; try{ const evRef = mp.fb.db.ref(`rooms/${mp.room}/events`).push(); const payload={...msg, room: mp.room, from: mp.name, _ts: Date.now(), _from: mp.peerId }; evRef.set(payload); }catch(e){ console.warn('fbBroadcast error', e); }
+}
 function scheduleReconnect(){
   if(!mp.server || !mp.room) return; // not configured
   const maxDelay = 8000;
@@ -1120,7 +1039,7 @@ function scheduleReconnect(){
   mp._retries = (mp._retries||0) + 1;
   setTimeout(()=> { if(!mp.connected){ connectWs(); } }, delay);
 }
-function broadcast(msg){ try{ if(!mp.ws || !mp.connected) return; // tag messages to avoid echo loops
+function broadcast(msg){ try{ if(mp.transport==='fb'){ if(!mp.connected) return; fbBroadcast(msg); return; } if(!mp.ws || !mp.connected) return; // tag messages to avoid echo loops
   msg = {...msg, room: mp.room, from: mp.name, _ts: Date.now()}; mp.ws.send(JSON.stringify(msg)); }catch{}
 }
 // ---- Presence (lightweight roster) ----
@@ -1159,181 +1078,40 @@ function applyBoardSettings(){
   document.getElementById('snapToggle') && (document.getElementById('snapToggle').checked = !!boardSettings.snap);
   applyBoardBackground(); applyGmMode(); computeVisionAuto();
 }
-function handleMpMessage(msg){
-  if(!msg || msg.room!==mp.room) return; // other room
-  if(msg.type==='perm'){
-    if(!mp.isGM){ mp.allowEdits = !!msg.allowEdits; const el=document.getElementById('playersEditToggle'); if(el) el.checked = mp.allowEdits; setMpStatus(mp.allowEdits? 'Players can edit' : 'View-only'); }
-    return;
-  }
-  if(msg.type==='state' && !mp.isGM){ importStateObj(msg.data||{}); setMpStatus('Synced'); return; }
-  if(msg.type==='cursor'){ updateRemoteCursor(msg); return; }
-  if(msg.type==='presence'){ upsertPresence(msg); return; }
-  if(msg.type==='op' && msg.op){ applyRemoteOp(msg.op); return; }
+
+// ----- Fog history (undo) -----
+function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
+function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
+
+// Pref helpers and toast
+function savePref(k,v){ try{ localStorage.setItem('pref:'+k, v);}catch{} }
+function loadPref(k,def){ try{ const v=localStorage.getItem('pref:'+k); return v==null? def : v; }catch{ return def; } }
+function toast(msg){ const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.remove('hidden'); clearTimeout(toast._tmr); toast._tmr = setTimeout(()=> t.classList.add('hidden'), 1200); }
+
+// Export PNG snapshot of the map (simple composite)
+function exportPngSnapshot(){ const map=document.getElementById('battleMap'); const wallsC=document.getElementById('wallsCanvas'); const fogC=document.getElementById('fogCanvas'); const overC=document.getElementById('overlayCanvas'); const tokenLayer=document.getElementById('tokenLayer'); const W=map.width, H=map.height; const out=document.createElement('canvas'); out.width=W; out.height=H; const ctx=out.getContext('2d');
+  // Background fill (patterned board color)
+  ctx.fillStyle = '#101417'; ctx.fillRect(0,0,W,H);
+  // Walls
+  if(wallsC) ctx.drawImage(wallsC,0,0);
+  // Tokens (approximate by drawing circles with stroke color and background)
+  [...tokenLayer.querySelectorAll('.token')].forEach(t=> {
+    const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const r=30;
+    ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.clip();
+    const bg=t.style.backgroundImage; const m=bg&&bg.match(/url\("?(.*?)"?\)/);
+    if(m&&m[1]){ /* Note: External images may be tainted; we still draw a fallback */ ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
+    else { ctx.fillStyle='#222'; ctx.fillRect(x-r,y-r,2*r,2*r); }
+    ctx.restore(); ctx.strokeStyle=getTokenStroke(t); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+  });
+  // Templates
+  if(overC) ctx.drawImage(overC,0,0);
+  // Optionally fog (omit when GM mode to share clean image)
+  if(!boardSettings.gmMode && fogC) ctx.drawImage(fogC,0,0);
+  const a=document.createElement('a'); a.download='map.png'; a.href=out.toDataURL('image/png'); a.click();
 }
-function applyRemoteOp(op){ if(!op) return; mp.silent = true; try{
-  if(op.kind==='move'){
-    const t=[...document.querySelectorAll('.token')].find(x=> (x.dataset.id||'')===op.id);
-    if(t){ t.style.left = op.x+'px'; t.style.top = op.y+'px'; saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
-  } else if(op.kind==='walls'){
-    walls = Array.isArray(op.walls)? op.walls: walls; persistWalls(); drawWalls(); if(boardSettings.visionAuto) computeVisionAuto();
-  } else if(op.kind==='templates'){
-    templates = Array.isArray(op.templates)? op.templates: templates; persistTemplates(); drawTemplates();
-  } else if(op.kind==='fog'){
-    if(op.data){ try{ localStorage.setItem('fogData', op.data); loadFog(); }catch{} }
-  } else if(op.kind==='tokensSet'){
-    if(Array.isArray(op.tokens)){ try{ localStorage.setItem('mapTokens', JSON.stringify(op.tokens)); loadTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }catch{} }
-  } else if(op.kind==='tokenAdd'){
-    if(op.token){ try{ const t=op.token; const layer=document.getElementById('tokenLayer'); if(layer){ const d=document.createElement('div'); d.className='token'; d.dataset.id=t.id||uid(); d.style.left=t.x+'px'; d.style.top=t.y+'px'; d.title=t.title||'token'; if(t.type) d.dataset.type=t.type; if(t.hp) d.dataset.hp=t.hp; if(t.vision) d.dataset.vision=t.vision; if(t.bg) d.style.backgroundImage=t.bg; layer.appendChild(d); updateTokenBadges(d); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); } }catch{} }
-  } else if(op.kind==='tokenUpdate'){
-    const t=[...document.querySelectorAll('.token')].find(x=> (x.dataset.id||'')===op.id); if(t && op.fields){ Object.entries(op.fields).forEach(([k,v])=>{ if(k==='hp'){ t.dataset.hp=String(v); updateTokenBadges(t); } else if(k==='type'){ if(v) t.dataset.type=String(v); else delete t.dataset.type; } else if(k==='vision'){ t.dataset.vision=String(v); } else if(k==='title'){ t.title=String(v); } }); saveTokens(); if(op.fields && Object.prototype.hasOwnProperty.call(op.fields,'vision') && boardSettings.visionAuto) computeVisionAuto(); }
-  } else if(op.kind==='tokenDel'){
-    const ids=op.ids||[]; if(ids.length){ [...document.querySelectorAll('.token')].forEach(t=> { if(ids.includes(t.dataset.id||'')) t.remove(); }); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
-  } else if(op.kind==='tokensClear'){
-    const layer=document.getElementById('tokenLayer'); if(layer){ layer.innerHTML=''; saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); }
-  } else if(op.kind==='initAdd'){
-    const items=op.items||[]; items.forEach(it=> { if(!initiative.order.some(o=>o.id===it.id)) initiative.order.push({id:it.id, name:it.name}); }); persistInitiative(); renderInitiative(); highlightActiveToken();
-  } else if(op.kind==='initRemove'){
-    const id=op.id; if(id){ initiative.order=initiative.order.filter(o=> o.id!==id); if(initiative.current>=initiative.order.length) initiative.current=0; persistInitiative(); renderInitiative(); highlightActiveToken(); }
-  } else if(op.kind==='initCycle'){
-    const dir=op.dir||1; if(initiative.order.length){ initiative.current=(initiative.current+dir+initiative.order.length)%initiative.order.length; renderInitiative(); highlightActiveToken(); }
-  } else if(op.kind==='initClear'){
-    initiative={order:[],current:0}; persistInitiative(); renderInitiative(); highlightActiveToken();
-  } else if(op.kind==='bg'){
-    if(typeof op.data==='string'){ boardSettings.bgImage=op.data; persistBoardSettings(); applyBoardBackground(); }
-  }
-} finally { mp.silent = false; } }
+function getTokenStroke(t){ if(t.dataset.type==='enemy') return '#ff5576'; if(t.dataset.type==='player') return '#4f8dff'; return getComputedStyle(document.body).getPropertyValue('--accent')||'#4f8dff'; }
 
-// Strengthen fog buttons with permissions + broadcast
-(function hardenFogButtons(){
-  const full=document.getElementById('fogFullBtn'); const clr=document.getElementById('fogClearBtn'); const rev=document.getElementById('fogRevealBtn'); const canvas=document.getElementById('fogCanvas');
-  full && full.addEventListener('click', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 50); });
-  clr && clr.addEventListener('click', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 50); });
-  if(canvas){ canvas.addEventListener('mouseup', ()=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )) return; setTimeout(()=> { if(!mp.silent) broadcast({type:'op', op:{kind:'fog', data: localStorage.getItem('fogData')||null}}); }, 100); }); }
-})();
-
-// -------- Welcome Landing (Create / Join / Solo) --------
-function initWelcomeLanding(){
-  const modal=document.getElementById('welcomeModal'); if(!modal) return;
-  // If hash autjoIn, keep modal but user likely intends to join; otherwise show by default
-  modal.classList.remove('hidden');
-  const nameEl=document.getElementById('wlName');
-  const inviteEl=document.getElementById('wlInvite');
-  const serverInline=document.getElementById('wlServerInline');
-  const prefs = loadMpPrefs();
-  if(nameEl) nameEl.value = prefs.name || '';
-  if(serverInline) serverInline.value = prefs.server || '';
-  function genRoom(){ return Math.random().toString(36).slice(2,8); }
-  function parseInvite(v){ try{ const u=new URL(v); const m=u.hash.match(/#join=([^|]+)\|(.+)/); if(m) return { server: decodeURIComponent(m[1]), room: decodeURIComponent(m[2])}; }catch{} return null; }
-  document.getElementById('wlSaveRelay')?.addEventListener('click', ()=>{
-    const v=(serverInline?.value||'').trim();
-    if(!v){ toast('Enter a wss:// relay URL'); return; }
-    try{ const url=new URL(v); if(url.protocol!=='wss:' && url.protocol!=='ws:') throw new Error('bad'); }catch{ toast('Relay must start with ws:// or wss://'); return; }
-    mp.server=v; saveMpPrefs(); toast('Relay saved');
-  });
-  document.getElementById('wlCreate')?.addEventListener('click', ()=>{
-    const name=(nameEl?.value||'GM').trim()||'GM';
-    const room=genRoom();
-    const server=(serverInline?.value||prefs.server||'').trim();
-    document.getElementById('mpName') && (document.getElementById('mpName').value=name);
-    document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
-    if(server){ document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server); }
-    modal.classList.add('hidden');
-    if(server){
-      // Online host as GM
-      mp.server=server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Connecting…');
-      toast('Hosting as GM');
-    } else {
-      // Fallback: local solo GM session (no relay yet)
-      mp.server=''; mp.room=''; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); setMpStatus('Solo');
-      toast('Created local table (offline). Save a Relay to go online.');
-    }
-    // Jump to Map view for immediate feedback
-    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
-    renderSessionBanner();
-  });
-  document.getElementById('wlJoin')?.addEventListener('click', ()=>{
-    const name=(nameEl?.value||'Player').trim()||'Player';
-    const parsed = parseInvite(inviteEl?.value||'');
-    if(!parsed){ toast('Paste a valid invite link'); return; }
-    const {server, room} = parsed;
-    document.getElementById('mpName') && (document.getElementById('mpName').value=name);
-    document.getElementById('mpRoomCode') && (document.getElementById('mpRoomCode').value=room);
-    document.getElementById('mpServerUrl') && (document.getElementById('mpServerUrl').value=server);
-    modal.classList.add('hidden');
-    mp.server=server; mp.room=room; mp.name=name; mp.isGM=false; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Connecting…');
-    // Navigate to Map view
-    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
-    renderSessionBanner(); toast('Joining table…');
-  });
-  document.getElementById('wlSolo')?.addEventListener('click', ()=>{
-    const soloName=(nameEl?.value||'').trim(); if(soloName){ mp.name=soloName; saveMpPrefs(); }
-    mp.server=''; mp.room=''; mp.connected=false; modal.classList.add('hidden'); setMpStatus('Solo');
-    const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
-    renderSessionBanner(); toast('Solo mode');
-  });
-  // Advanced removed for simplicity
-}
-
-// -------- Live Cursors --------
-let cursors = new Map(); // name -> {x,y,color,el,ts}
-function wireLiveCursors(){
-  const stage=document.getElementById('mapStage'); const layer=document.getElementById('cursorLayer'); if(!stage||!layer) return;
-  const colors=['#4f8dff','#ff5576','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c'];
-  const colorFor=(n)=>{ const h=[...n].reduce((a,c)=>a+c.charCodeAt(0),0); return colors[h%colors.length]; };
-  let lastSend=0; function send(ev){ if(!mp.connected) return; const now=performance.now(); if(now-lastSend<40) return; lastSend=now; const rect=stage.getBoundingClientRect(); const x=ev.clientX-rect.left; const y=ev.clientY-rect.top; broadcast({type:'cursor', room: mp.room, name: mp.name, x, y}); }
-  stage.addEventListener('mousemove', send);
-  // Cleanup stale cursors
-  setInterval(()=>{ const now=Date.now(); for(const [k,v] of cursors){ if(now-(v.ts||0) > 4000){ v.el?.remove(); cursors.delete(k); } } }, 3000);
-
-  window.updateRemoteCursor = function(msg){
-    if(!msg || msg.name===mp.name) return; // ignore self
-    const layer=document.getElementById('cursorLayer'); if(!layer) return;
-    const color=colorFor(msg.name||'peer');
-    let c=cursors.get(msg.name);
-    if(!c){ const el=document.createElement('div'); el.className='remote-cursor'; el.innerHTML = `<span class="dot" style="background:${color}"></span><span class="tag">${escapeHtml(msg.name||'Player')}</span>`; layer.appendChild(el); c={el}; cursors.set(msg.name,c); }
-    c.ts = Date.now(); c.x=msg.x; c.y=msg.y; c.el.style.left=msg.x+'px'; c.el.style.top=msg.y+'px';
-  }
-}
-
-// ------- Session banner (top of map view) -------
-function renderSessionBanner(){
-  const el=document.getElementById('sessionBanner'); if(!el) return;
-  if(!mp.server || !mp.room){
-    const hasRelay = !!(mp.server && /^wss?:\/\//.test(mp.server));
-    el.innerHTML = '<span class="grow">You are in Solo mode. Create or Join a table to play with others.</span>'+
-      '<button class="accent-btn" id="bnCreate">Create Table</button>'+
-      '<button class="mini-btn" id="bnJoin">Join</button>'+
-      (hasRelay? '' : '<button class="mini-btn" id="bnHostOnline">Host Online</button>');
-    el.querySelector('#bnCreate')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
-    el.querySelector('#bnJoin')?.addEventListener('click', ()=>{ document.getElementById('welcomeModal')?.classList.remove('hidden'); });
-    el.querySelector('#bnHostOnline')?.addEventListener('click', ()=>{
-      const modal=document.getElementById('welcomeModal'); if(modal){ modal.classList.remove('hidden'); toast('Paste your relay and click Save Relay'); }
-    });
-    return;
-  }
-  const link = new URL(location.href); link.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`;
-  const role = mp.isGM? 'GM' : 'Player';
-  const status = document.getElementById('mpStatus')?.textContent || (mp.connected? 'Connected':'Offline');
-  // Build quick roster summary
-  const peers = [...presence.peers.values()].sort((a,b)=> a.name.localeCompare(b.name));
-  const count = peers.length;
-  const names = peers.slice(0,4).map(p=> escapeHtml(p.name)).join(', ')+ (peers.length>4? ` +${peers.length-4}`:'' );
-  el.innerHTML = `<span class="pill">${escapeHtml(role)}</span>`+
-    `<span class="pill">Room: ${escapeHtml(mp.room)}</span>`+
-    `<span class="pill" title="Connected peers seen in last 12s">Peers: ${count}</span>`+
-    `<span class="muted small" style="max-width:40ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${names}</span>`+
-    `<span class="grow">${escapeHtml(status)}</span>`+
-    `<button class="mini-btn" id="bnCopy">Invite</button>`+
-    `<button class="mini-btn" id="bnReconnect">Reconnect</button>`;
-  el.querySelector('#bnCopy')?.addEventListener('click', ()=>{
-    navigator.clipboard?.writeText(link.toString()).then(()=> toast('Invite copied')).catch(()=> toast('Copy failed'));
-  });
-  el.querySelector('#bnReconnect')?.addEventListener('click', ()=>{ if(mp.server){ connectWs(); }});
-}
-
-init();
-
-// -------- Token Inspector --------
+// ----- Token inspector inputs
 function wireTokenInspector(){
   const nameI=document.getElementById('tiName'); const typeI=document.getElementById('tiType'); const hpI=document.getElementById('tiHP'); const visI=document.getElementById('tiVision');
   if(!nameI||!typeI||!hpI||!visI) return;
