@@ -588,6 +588,8 @@ let templates = []; // AoE templates {id, kind:circle|cone|line, x,y,w,h,angle}
 let initiative = { order: [], current: 0 }; // order: [{id, name}]
 let multiSelect = null; // {x1,y1,x2,y2}
 let boardSettings = { visionAuto:true, bgImage:null, gmMode:false };
+function loadBoardSettings(){ try{ const raw=localStorage.getItem('boardSettings'); if(raw){ const parsed=JSON.parse(raw); if(parsed && typeof parsed==='object') boardSettings={...boardSettings, ...parsed}; } }catch{} }
+function persistBoardSettings(){ try{ localStorage.setItem('boardSettings', JSON.stringify(boardSettings)); }catch{} }
 let fogHistory = [];
 // Multiplayer session state
 let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)), transport:'ws', fb:null };
