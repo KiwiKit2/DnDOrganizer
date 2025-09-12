@@ -1324,3 +1324,13 @@ function escapeHtml(str){ return String(str||'').replace(/[&<>"']/g, s=> ({'&':'
 // Kick off init after DOM ready (existing code may already attach DOMContentLoaded earlier)
 document.addEventListener('DOMContentLoaded', ()=> { renderSessionBanner(); });
 
+// --------------- Missing Utility Exports / Ruler ---------------
+function exportBoardState(){ try{ const data=exportStateObj(); const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.download='board-state.json'; a.href=URL.createObjectURL(blob); a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000); toast('Board exported'); }catch(e){ console.error(e); toast('Export failed'); } }
+async function importBoardState(e){ try{ const file=e.target.files?.[0]; if(!file) return; const txt=await file.text(); const json=JSON.parse(txt); importStateObj(json); toast('Board imported'); e.target.value=''; }catch(err){ console.error(err); toast('Import failed'); } }
+
+function startRulerMode(){ const stage=document.getElementById('mapStage'); if(!stage) return; let box=document.getElementById('rulerLine'); if(!box){ box=document.createElement('div'); box.id='rulerLine'; box.style.position='absolute'; box.style.pointerEvents='none'; box.style.border='1px solid #4f8dff'; box.style.background='rgba(79,141,255,0.15)'; box.style.fontSize='11px'; box.style.color='#fff'; box.style.padding='2px 4px'; box.style.borderRadius='4px'; stage.appendChild(box);} let origin=null; const grid=+document.getElementById('gridSizeInput')?.value||50; function fmt(distPx){ const squares = distPx / grid; const feet = squares*5; return feet.toFixed(1)+' ft'; }
+  function down(ev){ const rect=stage.getBoundingClientRect(); origin={x:ev.clientX-rect.left,y:ev.clientY-rect.top}; box.style.left=origin.x+'px'; box.style.top=origin.y+'px'; box.textContent='0 ft'; box.style.display='block'; document.addEventListener('mousemove',move); document.addEventListener('mouseup',up); ev.preventDefault(); }
+  function move(ev){ if(!origin) return; const rect=stage.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top; const dx=x-origin.x, dy=y-origin.y; const dist=Math.hypot(dx,dy); const left=Math.min(origin.x,x), top=Math.min(origin.y,y); box.style.left=left+'px'; box.style.top=top+'px'; box.style.width=Math.abs(dx)+'px'; box.style.height=Math.abs(dy)+'px'; box.textContent=fmt(dist); }
+  function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); setTimeout(()=>{ if(box) box.style.display='none'; }, 400); origin=null; }
+  stage.addEventListener('mousedown', down, { once:true }); toast('Ruler: drag to measure (M to re-run)'); }
+
