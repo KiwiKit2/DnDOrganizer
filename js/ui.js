@@ -44,6 +44,9 @@ async function init() {
   autoLoop();
 }
 
+// Ensure init runs on load (was missing causing nav + buttons dead)
+document.addEventListener('DOMContentLoaded', ()=> { try{ init(); }catch(e){ console.error('init failed', e); } });
+
 function sheetConfigured() {
   try{
     const url = new URL(mp.server);
@@ -750,6 +753,20 @@ function wireAdvancedMap(){
   wireTokenInspector();
   // Scenes
   wireScenes();
+}
+
+// ---------------- Scenes Management ----------------
+let _scenes=[]; const SCENES_KEY='mapScenesV1';
+function loadScenes(){ try{ const raw=localStorage.getItem(SCENES_KEY); if(raw) _scenes=JSON.parse(raw)||[]; }catch{ _scenes=[]; } }
+function saveScenes(){ try{ localStorage.setItem(SCENES_KEY, JSON.stringify(_scenes)); }catch{} }
+function wireScenes(){ loadScenes(); refreshSceneSelect(); const sel=document.getElementById('sceneSelect'); const saveBtn=document.getElementById('sceneSaveBtn'); const loadBtn=document.getElementById('sceneLoadBtn'); const manageBtn=document.getElementById('sceneManageBtn'); const panel=document.getElementById('scenePanel'); const list=document.getElementById('sceneList'); const closeBtn=document.getElementById('scenePanelClose'); const delAll=document.getElementById('sceneDeleteAllBtn');
+  saveBtn?.addEventListener('click', ()=>{ const name=prompt('Scene name:', (sel?.selectedOptions[0]?.textContent)||('Scene '+(_scenes.length+1))); if(!name) return; const snap=exportStateObj(); const existing=_scenes.find(s=> s.name===name); if(existing){ existing.data=snap; toast('Scene updated'); } else { _scenes.push({id:uid(), name, data:snap}); toast('Scene saved'); } saveScenes(); refreshSceneSelect(); renderSceneList(); });
+  loadBtn?.addEventListener('click', ()=>{ const id=sel?.value; const scene=_scenes.find(s=> s.id===id); if(scene){ importStateObj(scene.data); toast('Scene loaded'); } else toast('Select a scene'); });
+  manageBtn?.addEventListener('click', ()=>{ renderSceneList(); panel?.classList.remove('hidden'); });
+  closeBtn?.addEventListener('click', ()=> panel?.classList.add('hidden'));
+  delAll?.addEventListener('click', ()=>{ if(!confirm('Delete ALL scenes?')) return; _scenes=[]; saveScenes(); refreshSceneSelect(); renderSceneList(); });
+  function renderSceneList(){ if(!list) return; list.innerHTML=''; _scenes.forEach(s=>{ const li=document.createElement('li'); li.innerHTML=`<strong>${escapeHtml(s.name)}</strong> <button data-a='load'>Load</button> <button data-a='rename'>Ren</button> <button data-a='del' class='danger'>Del</button>`; li.querySelectorAll('button').forEach(b=> b.addEventListener('click', ev=>{ const act=b.dataset.a; if(act==='load'){ importStateObj(s.data); toast('Scene loaded'); } else if(act==='del'){ if(confirm('Delete scene '+s.name+'?')){ _scenes=_scenes.filter(x=>x!==s); saveScenes(); refreshSceneSelect(); renderSceneList(); } } else if(act==='rename'){ const nn=prompt('New name:', s.name); if(nn){ s.name=nn; saveScenes(); refreshSceneSelect(); renderSceneList(); } } })); list.appendChild(li); }); if(!_scenes.length) list.innerHTML='<li class="muted">No scenes yet.</li>'; }
+  function refreshSceneSelect(){ const sel=document.getElementById('sceneSelect'); if(!sel) return; sel.innerHTML=_scenes.map(s=>`<option value='${s.id}'>${escapeHtml(s.name)}</option>`).join(''); }
 }
 
 // --- Simple quick room creation (auto code) ---
