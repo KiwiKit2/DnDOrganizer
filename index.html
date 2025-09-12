@@ -24,6 +24,7 @@
         <button class="nav-btn" data-view="board">Kanban</button>
         <button class="nav-btn" data-view="map">Board</button>
         <button class="nav-btn" data-view="table">Table</button>
+  <button class="nav-btn" data-view="character">Character</button>
         <button class="nav-btn" data-view="about">About</button>
       </nav>
       <div class="sidebar-footer">
@@ -291,6 +292,39 @@
       </section>
 
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
+      <section id="view-character" class="view hidden">
+        <div class="char-page">
+          <div class="char-top">
+            <div class="char-img-wrap" id="charImgWrap" title="Click to set image">
+              <img id="charImg" alt="Character" class="hidden" />
+              <div class="char-img-placeholder" id="charImgPh">IMG</div>
+              <input type="file" id="charImgInput" accept="image/*" hidden />
+            </div>
+            <div class="char-main-fields">
+              <input id="charName" class="char-name" placeholder="Name" />
+              <textarea id="charDesc" class="char-desc" placeholder="Description"></textarea>
+            </div>
+          </div>
+          <div class="char-stats" id="charStats"></div>
+          <div class="char-inv card-panel">
+            <h2>Inventory</h2>
+            <div class="inv-sections">
+              <div class="inv-block"><label>Hands</label><textarea id="invHands" placeholder=""></textarea></div>
+              <div class="inv-block"><label>Equip</label><textarea id="invEquip" placeholder=""></textarea></div>
+              <div class="inv-block wide"><label>Store</label><textarea id="invStore" placeholder=""></textarea></div>
+            </div>
+          </div>
+          <div class="char-moves card-panel">
+            <div class="char-moves-head">
+              <h2>Moves</h2>
+              <input type="search" id="charMoveFilter" placeholder="Filter assigned" />
+              <input type="search" id="charMoveAdd" placeholder="Add move by name" />
+            </div>
+            <div id="charMoveSuggestions" class="char-suggestions hidden"></div>
+            <div id="charMovesList" class="char-move-list"></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
   <button id="helpFab" class="help-fab" title="Help">?</button>

@@ -650,6 +650,7 @@ function wireHelp(){
 document.addEventListener('DOMContentLoaded', () => {
   wireHelp();
   wireAdvancedMap();
+  wireCharacterPage();
 });
 
 function wireAdvancedMap(){
@@ -768,6 +769,40 @@ function quickHostQuickRoom(){
 let lastViewBroadcast=0;
 function broadcastActiveView(){ if(!mp.connected) return; const now=performance.now(); if(now-lastViewBroadcast<1500) return; lastViewBroadcast=now; const view=document.querySelector('.nav-btn.active')?.dataset.view||''; broadcast({type:'presence', id:mp.peerId, name:mp.name, role:(mp.isGM?'gm':'player'), view}); }
 setInterval(()=> broadcastActiveView(), 2000);
+
+// ---------------- Character Page ----------------
+const CHAR_KEY='charProfileV1';
+let charProfile = { name:'', desc:'', img:null, stats:{}, inv:{hands:'',equip:'',store:''}, moves:[] };
+function loadChar(){ try{ const raw=localStorage.getItem(CHAR_KEY); if(raw){ const p=JSON.parse(raw); if(p&&typeof p==='object') charProfile={...charProfile, ...p}; } }catch{} }
+function saveChar(){ try{ localStorage.setItem(CHAR_KEY, JSON.stringify(charProfile)); }catch{} }
+function wireCharacterPage(){ loadChar(); buildCharStats(); bindCharInputs(); renderCharMoves(); }
+function buildCharStats(){
+  const host=document.getElementById('charStats'); if(!host) return; host.innerHTML='';
+  // Derive stat keys: use first 15 distinct capitalized column headers or fallback list
+  const fallback=['ATF','ATM','DEF','DEM','VEL','VID','PRE','EVA','PAS','SUE','FZA','CON','INT','SAG','AGI','CRM','DST','VIT','ETK','EAC','EST','ESP'];
+  let keys = (window.state?.headers||[]).filter(h=>/^[A-Z]{2,5}$/.test(h)).slice(0,24); if(!keys.length) keys=fallback;
+  keys.forEach(k=>{ if(!(k in charProfile.stats)) charProfile.stats[k]=''; const cell=document.createElement('div'); cell.className='stat'; cell.innerHTML=`<label style='font-size:10px;letter-spacing:.5px;'>${k}</label><input data-stat='${k}' value='${escapeHtml(charProfile.stats[k]||'')}' />`; host.appendChild(cell); });
+  host.querySelectorAll('input[data-stat]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{ const key=inp.dataset.stat; charProfile.stats[key]=inp.value.trim(); saveChar(); });
+  });
+}
+function bindCharInputs(){
+  const n=document.getElementById('charName'); const d=document.getElementById('charDesc'); const h=document.getElementById('invHands'); const e=document.getElementById('invEquip'); const s=document.getElementById('invStore'); const imgWrap=document.getElementById('charImgWrap'); const imgInput=document.getElementById('charImgInput'); const imgEl=document.getElementById('charImg'); const imgPh=document.getElementById('charImgPh');
+  if(n){ n.value=charProfile.name||''; n.addEventListener('input', ()=>{ charProfile.name=n.value.trim(); saveChar(); }); }
+  if(d){ d.value=charProfile.desc||''; d.addEventListener('input', ()=>{ charProfile.desc=d.value; saveChar(); }); }
+  if(h){ h.value=charProfile.inv.hands||''; h.addEventListener('input', ()=>{ charProfile.inv.hands=h.value; saveChar(); }); }
+  if(e){ e.value=charProfile.inv.equip||''; e.addEventListener('input', ()=>{ charProfile.inv.equip=e.value; saveChar(); }); }
+  if(s){ s.value=charProfile.inv.store||''; s.addEventListener('input', ()=>{ charProfile.inv.store=s.value; saveChar(); }); }
+  if(imgWrap && imgInput){ imgWrap.addEventListener('click', ()=> imgInput.click()); imgInput.addEventListener('change', async ev=>{ const file=ev.target.files?.[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>{ charProfile.img=rd.result; saveChar(); applyCharImage(); }; rd.readAsDataURL(file); }); applyCharImage(); }
+  const filt=document.getElementById('charMoveFilter'); const add=document.getElementById('charMoveAdd'); const sug=document.getElementById('charMoveSuggestions');
+  if(filt){ filt.addEventListener('input', ()=> renderCharMoves()); }
+  if(add){ add.addEventListener('input', ()=> buildMoveSuggestions(add.value.trim(), sug)); add.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); quickAddMove(add.value.trim()); }}); }
+}
+function applyCharImage(){ const imgEl=document.getElementById('charImg'); const ph=document.getElementById('charImgPh'); if(!imgEl||!ph) return; if(charProfile.img){ imgEl.src=charProfile.img; imgEl.classList.remove('hidden'); ph.classList.add('hidden'); } else { imgEl.classList.add('hidden'); ph.classList.remove('hidden'); } }
+function buildMoveSuggestions(term, container){ if(!container) return; if(!term){ container.classList.add('hidden'); container.innerHTML=''; return; } term=term.toLowerCase(); const matches=(moves||[]).filter(m=> m.name.toLowerCase().includes(term) && !charProfile.moves.includes(m.name)).slice(0,10); if(!matches.length){ container.classList.add('hidden'); container.innerHTML=''; return; } container.innerHTML=''; matches.forEach(m=>{ const b=document.createElement('button'); b.textContent=m.name; b.addEventListener('click', ()=>{ quickAddMove(m.name); container.classList.add('hidden'); document.getElementById('charMoveAdd').value=''; }); container.appendChild(b); }); container.classList.remove('hidden'); }
+function quickAddMove(name){ if(!name) return; const mv=(moves||[]).find(m=> m.name.toLowerCase()===name.toLowerCase()); if(!mv){ toast('Move not found'); return; } if(charProfile.moves.includes(mv.name)){ toast('Already added'); return; } charProfile.moves.push(mv.name); saveChar(); renderCharMoves(); toast('Move added'); }
+function removeCharMove(name){ charProfile.moves=charProfile.moves.filter(n=> n!==name); saveChar(); renderCharMoves(); }
+function renderCharMoves(){ const list=document.getElementById('charMovesList'); if(!list) return; const filt=(document.getElementById('charMoveFilter')?.value||'').toLowerCase(); list.innerHTML=''; const assigned=charProfile.moves.map(n=> (moves||[]).find(m=> m.name===n)).filter(Boolean).filter(m=> !filt || m.name.toLowerCase().includes(filt) || (m.tags||[]).some(t=>t.toLowerCase().includes(filt))); if(!assigned.length){ list.innerHTML='<div class="muted">No moves assigned.</div>'; return; } assigned.forEach(m=>{ const card=document.createElement('div'); card.className='char-move'; card.innerHTML=`<button class='remove-move' title='Remove'>&times;</button><h3>${escapeHtml(m.name)}</h3><div class='desc small'>${escapeHtml(m.description||'')}</div><div class='tags'>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</div>`; card.querySelector('.remove-move').addEventListener('click', ()=> removeCharMove(m.name)); list.appendChild(card); }); }
 
 // ----- Walls -----
 let wallMode = false, wallTempPoint=null;
