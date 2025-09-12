@@ -1196,3 +1196,131 @@ function wireTokenInspector(){
   hpI.addEventListener('input', ()=> push({hp:hpI.value}));
   visI.addEventListener('input', ()=> push({vision:visI.value}));
 }
+
+// ---------------- Missing / Simplified Multiplayer + Landing Functions ----------------
+// Note: These functions restore simplified onboarding (Create / Join / Solo) and basic realtime sync.
+
+function initWelcomeLanding(){
+  const modal=document.getElementById('welcomeModal'); if(!modal) return;
+  const nameI=document.getElementById('wlName');
+  const createBtn=document.getElementById('wlCreate');
+  const joinBtn=document.getElementById('wlJoin');
+  const soloBtn=document.getElementById('wlSolo');
+  const inviteI=document.getElementById('wlInvite');
+  const relayI=document.getElementById('wlServerInline');
+  const relaySave=document.getElementById('wlSaveRelay');
+  const fbTa=document.getElementById('wlFbConfigInline');
+  const fbSave=document.getElementById('wlSaveFirebase');
+  // Load prefs
+  const prefs=loadMpPrefs();
+  if(nameI) nameI.value = prefs.name || '';
+  if(relayI) relayI.value = prefs.server || '';
+  if(fbTa && prefs.fbConfig) fbTa.value = JSON.stringify(prefs.fbConfig);
+
+  function open(){ modal.classList.remove('hidden'); }
+  function close(){ modal.classList.add('hidden'); }
+  // Always show on first load if not already connected
+  if(!mp.connected && !sessionStorage.getItem('welcomeShown')){ open(); sessionStorage.setItem('welcomeShown','1'); }
+
+  createBtn?.addEventListener('click', ()=>{
+    const name=(nameI?.value||'').trim()||'GM';
+    mp.name=name; mp.isGM=true; mp.connected=false; mp.room=genShortRoom();
+    // Choose transport preference: Firebase if config present else relay if present else offline
+    if(fbTa?.value.trim()){
+      try{ const cfg=JSON.parse(fbTa.value.trim()); mp.transport='fb'; mp.fb={config:cfg, app:null, db:null, unsub:null}; }
+      catch{ toast('Bad Firebase JSON'); return; }
+    } else if(relayI?.value.trim()){
+      mp.transport='ws'; mp.server=relayI.value.trim();
+    } else {
+      mp.transport='ws'; mp.server=''; // offline local
+    }
+    saveMpPrefs();
+    if(mp.transport==='fb') connectFirebase(); else if(mp.server) connectWs(); else { setMpStatus('Solo'); }
+    toast('Room '+mp.room);
+    close();
+    // Jump to map
+    document.querySelector(".nav-btn[data-view='map']")?.click();
+    renderSessionBanner();
+  });
+
+  joinBtn?.addEventListener('click', ()=>{
+    const link=(inviteI?.value||'').trim(); if(!link){ toast('Paste invite link'); return; }
+    // Accept either full URL with #join=... or raw fragment like #join=fb|room
+    let hash='';
+    if(link.startsWith('http')){ try{ hash=new URL(link).hash; }catch{ hash=link; } }
+    else { hash = link.startsWith('#')? link : '#'+link; }
+    location.hash = hash; // so parseJoinHash works
+    const parsed=parseJoinHash(); if(!parsed){ toast('Invalid invite'); return; }
+    const name=(nameI?.value||'').trim()||'Player';
+    mp.name=name; mp.isGM=false; mp.room=parsed.room; mp.transport=parsed.transport; mp.server=parsed.server||''; mp.connected=false;
+    if(parsed.transport==='fb'){
+      const prefs2=loadMpPrefs(); if(prefs2.fbConfig){ mp.fb={config:prefs2.fbConfig, app:null, db:null, unsub:null}; connectFirebase(); }
+      else { toast('Need Firebase config (Save in Welcome)'); return; }
+    } else if(parsed.transport==='ws'){
+      if(!mp.server){ toast('Invite missing relay server'); return; }
+      connectWs();
+    }
+    saveMpPrefs();
+    close();
+    document.querySelector(".nav-btn[data-view='map']")?.click();
+    renderSessionBanner();
+  });
+
+  soloBtn?.addEventListener('click', ()=>{
+    const name=(nameI?.value||'').trim()||'GM'; mp.name=name; mp.isGM=true; mp.room=''; mp.connected=false; mp.transport='ws'; mp.server=''; saveMpPrefs(); setMpStatus('Solo'); close(); document.querySelector(".nav-btn[data-view='map']")?.click(); renderSessionBanner(); });
+
+  relaySave?.addEventListener('click', ()=>{ const v=relayI?.value.trim(); if(!v){ toast('Enter relay URL'); return; } mp.server=v; saveMpPrefs(); toast('Relay saved'); });
+  fbSave?.addEventListener('click', ()=>{ const raw=fbTa?.value.trim(); if(!raw){ toast('Enter Firebase config JSON'); return; } try{ const cfg=JSON.parse(raw); mp.fb={config:cfg, app:null, db:null, unsub:null}; mp.transport='fb'; saveMpPrefs(); toast('Firebase saved'); }catch{ toast('Invalid JSON'); } });
+}
+
+function renderSessionBanner(){
+  const el=document.getElementById('sessionBanner'); if(!el) return; const parts=[];
+  if(mp.room){ parts.push(`<strong>${mp.isGM? 'GM':'Player'}</strong> in <code>${mp.room}</code>`); }
+  else parts.push(mp.isGM? 'Solo (GM)' : 'Offline');
+  parts.push(mp.transport==='fb'? 'Firebase' : (mp.server? 'Relay' : 'Local'));
+  if(mp.connected){ parts.push('<span class="good">Online</span>'); } else { parts.push('<span class="muted">Offline</span>'); }
+  // Peers list
+  const peerBits=[]; for(const [id,p] of presence.peers){ peerBits.push(`<span class="peer ${p.role}">${escapeHtml(p.name)}${p.view? ' <em>'+escapeHtml(p.view)+'</em>':''}</span>`); }
+  if(peerBits.length) parts.push(peerBits.join(' '));
+  if(mp.room){ parts.push(`<button id="sbShare" class="mini-btn">Share</button>`); }
+  el.innerHTML=parts.join(' • ');
+  el.querySelector('#sbShare')?.addEventListener('click', copyJoinLink);
+}
+
+function applyGmMode(){ document.body.classList.toggle('gm-mode', !!boardSettings.gmMode); document.getElementById('gmModeToggle') && (document.getElementById('gmModeToggle').checked = !!boardSettings.gmMode); }
+
+function wireLiveCursors(){ const layer=document.getElementById('cursorLayer'); const stage=document.getElementById('mapStage'); if(!layer||!stage) return; const cursors=new Map(); function upkeep(){ const now=Date.now(); for(const [id,info] of cursors){ if(now-info.ts>4000){ info.el.remove(); cursors.delete(id); } } requestAnimationFrame(upkeep); } upkeep(); stage.addEventListener('mousemove', e=>{ if(!mp.connected) return; if(loadPref('cursors','true')==='false') return; const rect=stage.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top; broadcast({type:'cursor', id:mp.peerId, x,y,name:mp.name}); }); function show(id,x,y,name){ let entry=cursors.get(id); if(!entry){ const div=document.createElement('div'); div.className='remote-cursor'; div.innerHTML=`<span class='dot'></span><label>${escapeHtml(name||'')}</label>`; layer.appendChild(div); entry={el:div,ts:Date.now()}; cursors.set(id,entry);} entry.el.style.left=x+'px'; entry.el.style.top=y+'px'; entry.ts=Date.now(); }
+  wireLiveCursors._show = show; }
+
+function handleMpMessage(msg){ if(!msg || msg.room && mp.room && msg.room!==mp.room) return; switch(msg.type){
+    case 'presence': upsertPresence(msg); if(msg.view){ const p=presence.peers.get(msg.id); if(p) p.view=msg.view; } break;
+    case 'state': if(!mp.isGM){ importStateObj(msg.data||{}); toast('State synced'); } break;
+    case 'perm': mp.allowEdits = !!msg.allowEdits; toast('Edit '+(mp.allowEdits?'enabled':'locked')); break;
+    case 'cursor': if(wireLiveCursors._show) wireLiveCursors._show(msg.id,msg.x,msg.y,msg.name); break;
+    case 'op': applyRemoteOp(msg.op); break;
+  }
+  renderSessionBanner();
+}
+
+function applyRemoteOp(op){ if(!op||mp.isGM && op.skipGM) return; try{
+    if(op.kind==='move'){ const tok=[...document.querySelectorAll('.token')].find(t=> t.dataset.id===op.id); if(tok){ tok.style.left=op.x+'px'; tok.style.top=op.y+'px'; saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); } }
+    else if(op.kind==='tokenAdd'){ const layer=document.getElementById('tokenLayer'); if(layer){ const t=document.createElement('div'); t.className='token'; t.dataset.id=op.token.id; t.style.left=op.token.x+'px'; t.style.top=op.token.y+'px'; t.title=op.token.title||''; if(op.token.type) t.dataset.type=op.token.type; if(op.token.bg) t.style.backgroundImage=op.token.bg; if(op.token.hp) t.dataset.hp=op.token.hp; if(op.token.vision) t.dataset.vision=op.token.vision; layer.appendChild(t); updateTokenBadges(t); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); } }
+    else if(op.kind==='tokenUpdate'){ const tok=[...document.querySelectorAll('.token')].find(t=> t.dataset.id===op.id); if(tok){ Object.entries(op.fields||{}).forEach(([k,v])=>{ if(k==='title') tok.title=v; else if(k==='type'){ if(v) tok.dataset.type=v; else delete tok.dataset.type; } else if(k==='hp'){ if(v) tok.dataset.hp=v; else delete tok.dataset.hp; updateTokenBadges(tok); } else if(k==='vision'){ if(v) tok.dataset.vision=v; else delete tok.dataset.vision; if(boardSettings.visionAuto) computeVisionAuto(); } }); saveTokens(); } }
+    else if(op.kind==='tokenDel'){ (op.ids||[]).forEach(id=> { const t=[...document.querySelectorAll('.token')].find(x=>x.dataset.id===id); if(t) t.remove(); }); saveTokens(); }
+    else if(op.kind==='tokensSet'){ const layer=document.getElementById('tokenLayer'); if(layer){ layer.innerHTML=''; (op.tokens||[]).forEach(o=>{ const t=document.createElement('div'); t.className='token'; t.dataset.id=o.id; t.style.left=o.x+'px'; t.style.top=o.y+'px'; t.title=o.title||''; if(o.type) t.dataset.type=o.type; if(o.bg) t.style.backgroundImage=o.bg; if(o.hp) t.dataset.hp=o.hp; if(o.vision) t.dataset.vision=o.vision; layer.appendChild(t); updateTokenBadges(t); }); saveTokens(); if(boardSettings.visionAuto) computeVisionAuto(); } }
+    else if(op.kind==='walls'){ walls=op.walls||[]; persistWalls(); drawWalls(); if(boardSettings.visionAuto) computeVisionAuto(); }
+    else if(op.kind==='templates'){ templates=op.templates||[]; persistTemplates(); drawTemplates(); }
+    else if(op.kind==='initAdd'){ (op.items||[]).forEach(it=> { if(!initiative.order.some(o=>o.id===it.id)) initiative.order.push(it); }); persistInitiative(); renderInitiative(); }
+    else if(op.kind==='initRemove'){ initiative.order=initiative.order.filter(o=> o.id!==op.id); persistInitiative(); renderInitiative(); }
+    else if(op.kind==='initCycle'){ cycleInitiative(op.dir||1); }
+    else if(op.kind==='bg'){ boardSettings.bgImage=op.data; persistBoardSettings(); applyBoardBackground(); }
+    else if(op.kind==='fog'){ try{ localStorage.setItem('fogData', op.data); loadFog(); }catch{} }
+  }catch(e){ console.warn('applyRemoteOp', e); }
+}
+
+// Utility: escape HTML
+function escapeHtml(str){ return String(str||'').replace(/[&<>"']/g, s=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[s])); }
+
+// Kick off init after DOM ready (existing code may already attach DOMContentLoaded earlier)
+document.addEventListener('DOMContentLoaded', ()=> { renderSessionBanner(); });
+
