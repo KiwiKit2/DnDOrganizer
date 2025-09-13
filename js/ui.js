@@ -690,7 +690,15 @@ function wireAdvancedMap(){
   document.getElementById('importBoardBtn')?.addEventListener('click', ()=> document.getElementById('importBoardInput').click());
   document.getElementById('importBoardInput')?.addEventListener('change', importBoardState);
   document.getElementById('fogUndoBtn')?.addEventListener('click', undoFogStep);
-  document.getElementById('gmModeToggle')?.addEventListener('change', e=> { boardSettings.gmMode = !!e.target.checked; persistBoardSettings(); applyGmMode(); });
+  const gmBtn=document.getElementById('gmModeBtn');
+  if(gmBtn){
+    gmBtn.addEventListener('click', ()=> {
+      if(!mp.isGM){ toast('GM only'); return; }
+      boardSettings.gmMode = !boardSettings.gmMode;
+      persistBoardSettings();
+      applyGmMode();
+    });
+  }
   document.getElementById('exportImageBtn')?.addEventListener('click', exportPngSnapshot);
   // Simple Mode
   const sT=document.getElementById('simpleModeToggle'); if(sT){ const val=loadPref('simpleMode','true'); sT.checked=val==='true'; document.body.classList.toggle('simple-mode', sT.checked); sT.addEventListener('change', ()=> { savePref('simpleMode', sT.checked?'true':'false'); document.body.classList.toggle('simple-mode', sT.checked); }); }
@@ -1335,7 +1343,17 @@ function renderSessionBanner(){
   el.querySelector('#sbShare')?.addEventListener('click', copyJoinLink);
 }
 
-function applyGmMode(){ document.body.classList.toggle('gm-mode', !!boardSettings.gmMode); document.getElementById('gmModeToggle') && (document.getElementById('gmModeToggle').checked = !!boardSettings.gmMode); }
+function applyGmMode(){
+  const on = !!boardSettings.gmMode;
+  document.body.classList.toggle('gm-mode', on);
+  const gmBtn=document.getElementById('gmModeBtn');
+  if(gmBtn){ gmBtn.textContent = on? 'Disable GM Mode' : 'Enable GM Mode'; }
+  // Hide GM enable button for players (non-GM in multiplayer)
+  if(gmBtn){ gmBtn.style.display = (mp.connected && !mp.isGM) ? 'none' : 'inline-block'; }
+  // Restrict some controls when not GM (if in multiplayer and not GM) or GM mode disabled
+  const restrictedIds=['wallModeBtn','fogRevealBtn','fogFullBtn','fogClearBtn','fogUndoBtn','addCircleTemplateBtn','addConeTemplateBtn','addLineTemplateBtn','sceneSaveBtn','sceneLoadBtn','sceneManageBtn','clearWallsBtn','clearTemplatesBtn'];
+  restrictedIds.forEach(id=> { const el=document.getElementById(id); if(!el) return; if(mp.connected && !mp.isGM){ el.disabled=true; el.classList.add('disabled'); } else { el.disabled = !on; el.classList.toggle('disabled', !on); } });
+}
 
 function wireLiveCursors(){ const layer=document.getElementById('cursorLayer'); const stage=document.getElementById('mapStage'); if(!layer||!stage) return; const cursors=new Map(); function upkeep(){ const now=Date.now(); for(const [id,info] of cursors){ if(now-info.ts>4000){ info.el.remove(); cursors.delete(id); } } requestAnimationFrame(upkeep); } upkeep(); stage.addEventListener('mousemove', e=>{ if(!mp.connected) return; if(loadPref('cursors','true')==='false') return; const rect=stage.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top; broadcast({type:'cursor', id:mp.peerId, x,y,name:mp.name}); }); function show(id,x,y,name){ let entry=cursors.get(id); if(!entry){ const div=document.createElement('div'); div.className='remote-cursor'; div.innerHTML=`<span class='dot'></span><label>${escapeHtml(name||'')}</label>`; layer.appendChild(div); entry={el:div,ts:Date.now()}; cursors.set(id,entry);} entry.el.style.left=x+'px'; entry.el.style.top=y+'px'; entry.ts=Date.now(); }
   wireLiveCursors._show = show; }

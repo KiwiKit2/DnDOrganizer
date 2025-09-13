@@ -179,7 +179,7 @@
               <label><input type="checkbox" id="showWallsToggle" checked /> Walls</label>
               <label><input type="checkbox" id="showTemplatesToggle" checked /> Templates</label>
               <label><input type="checkbox" id="collideWallsToggle" /> Collide</label>
-              <label><input type="checkbox" id="gmModeToggle" /> GM Mode</label>
+              <button id="gmModeBtn" class="mini-btn" title="Enable GM tools (GM only)">Enable GM Mode</button>
             </div>
             <div class="mp-group">
               <button id="hostGameBtn" class="mini-btn" title="Host a session as GM">Host</button>
@@ -356,21 +356,17 @@
     <div class="modal-panel" style="max-width:520px">
       <header><h2>Welcome to DnDex</h2></header>
       <div class="welcome-simple">
-        <label>Your Name<input id="wlName" placeholder="GM or Player" /></label>
-        <button id="wlCreate" class="accent-btn">Create a Table (GM)</button>
-        <div class="or-sep">or</div>
-  <label>Invite Code or Link<input id="wlInvite" placeholder="Paste a code or invite link" /></label>
-        <button id="wlJoin" class="mini-btn">Join</button>
-        <button id="wlSolo" class="mini-btn">Solo Mode</button>
-        <label>Relay URL (saved)
-          <input id="wlServerInline" placeholder="wss://your-relay.example.com" />
-        </label>
-        <button id="wlSaveRelay" class="mini-btn">Save Relay</button>
-        <label>Firebase Config (saved)
-          <textarea id="wlFbConfigInline" placeholder='{"apiKey":"...","databaseURL":"https://<project>.firebaseio.com"}'></textarea>
-        </label>
-        <button id="wlSaveFirebase" class="mini-btn">Save Firebase</button>
-        <small style="opacity:.75">Create uses your saved Relay or Firebase (no server). Join works by pasting an invite link.</small>
+          <label>Your Name<input id="wlName" placeholder="GM or Player" /></label>
+          <div class="wl-row">
+            <button id="wlCreate" class="accent-btn" style="flex:1">Host (GM)</button>
+            <button id="wlSolo" class="mini-btn" style="flex:0 0 auto">Solo</button>
+          </div>
+          <div class="join-block">
+            <label>Join Code<input id="wlInvite" placeholder="Enter code (e.g. abcd12)" /></label>
+            <button id="wlJoin" class="mini-btn" style="width:100%">Join Game</button>
+          </div>
+          <div id="hostCodeDisplay" class="host-code" aria-live="polite" style="display:none"></div>
+          <small class="muted">Share only the code. Players paste it and press Join.</small>
       </div>
     </div>
   </div>
