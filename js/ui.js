@@ -1067,9 +1067,8 @@ function startMp(asHost){
   const mapBtn=document.querySelector(".nav-btn[data-view='map']"); if(mapBtn) mapBtn.click(); else { document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active')); document.getElementById('view-map')?.classList.add('active'); }
   renderSessionBanner();
 }
-function copyJoinLink(){ if(!mp.room){ toast('Start a session first'); return; } const url=new URL(location.href); if(mp.transport==='fb'){ url.hash = `#join=fb|${encodeURIComponent(mp.room)}`; } else { url.hash = `#join=${encodeURIComponent(mp.server)}|${encodeURIComponent(mp.room)}`; } navigator.clipboard?.writeText(url.toString()).then(()=> toast('Join link copied')).catch(()=> toast('Copy failed'));
-}
-function parseJoinHash(){ try{ const h=location.hash||''; const fb=h.match(/#join=fb\|(.+)/); if(fb) return { transport:'fb', server:'', room: decodeURIComponent(fb[1]) }; const m=h.match(/#join=([^|]+)\|(.+)/); if(!m) return null; return { transport:'ws', server:decodeURIComponent(m[1]), room:decodeURIComponent(m[2])}; }catch{ return null; } }
+function copyJoinLink(){ if(!mp.room){ toast('Start a session first'); return; } navigator.clipboard?.writeText(mp.room).then(()=> toast('Code copied')).catch(()=> toast('Copy failed')); }
+function parseJoinHash(){ try{ const h=location.hash||''; const fb=h.match(/#join=fb\|([^&]+)/); if(fb) return { transport:'fb', server:'', room: decodeURIComponent(fb[1]) }; const m=h.match(/#join=([^|#&]+)/); if(m) return { transport:(mp.transport||'ws'), server: (mp.server||''), room: decodeURIComponent(m[1]) }; return null; }catch{ return null; } }
 function setMpStatus(txt){ const el=document.getElementById('mpStatus'); if(el) el.textContent = txt; renderSessionBanner(); }
 function connectWs(){ if(mp.transport!=='ws') return; try{
     const url = new URL(mp.server);
@@ -1271,13 +1270,13 @@ function initWelcomeLanding(){
   });
 
   joinBtn?.addEventListener('click', ()=>{
-    const link=(inviteI?.value||'').trim(); if(!link){ toast('Paste invite link'); return; }
-    // Accept either full URL with #join=... or raw fragment like #join=fb|room
-    let hash='';
-    if(link.startsWith('http')){ try{ hash=new URL(link).hash; }catch{ hash=link; } }
-    else { hash = link.startsWith('#')? link : '#'+link; }
-    location.hash = hash; // so parseJoinHash works
-    const parsed=parseJoinHash(); if(!parsed){ toast('Invalid invite'); return; }
+    const raw=(inviteI?.value||'').trim(); if(!raw){ toast('Enter code'); return; }
+    let parsed=null;
+    if(/#join=/.test(raw) || raw.startsWith('http')){ // legacy link
+      let hash=''; if(raw.startsWith('http')){ try{ hash=new URL(raw).hash; }catch{ hash=raw; } } else hash=raw.startsWith('#')? raw : '#'+raw; location.hash=hash; parsed=parseJoinHash();
+    } else { // plain code
+      parsed={ transport:(mp.transport||'ws'), server:(mp.server||''), room: raw }; }
+    if(!parsed){ toast('Bad code'); return; }
     const name=(nameI?.value||'').trim()||'Player';
     mp.name=name; mp.isGM=false; mp.room=parsed.room; mp.transport=parsed.transport; mp.server=parsed.server||''; mp.connected=false;
     if(parsed.transport==='fb'){
@@ -1309,7 +1308,7 @@ function renderSessionBanner(){
   // Peers list
   const peerBits=[]; for(const [id,p] of presence.peers){ peerBits.push(`<span class="peer ${p.role}">${escapeHtml(p.name)}${p.view? ' <em>'+escapeHtml(p.view)+'</em>':''}</span>`); }
   if(peerBits.length) parts.push(peerBits.join(' '));
-  if(mp.room){ parts.push(`<button id="sbShare" class="mini-btn">Share</button>`); }
+  if(mp.room){ parts.push(`<button id="sbShare" class="mini-btn" title="Copy code">Copy Code</button>`); }
   el.innerHTML=parts.join(' • ');
   el.querySelector('#sbShare')?.addEventListener('click', copyJoinLink);
 }
