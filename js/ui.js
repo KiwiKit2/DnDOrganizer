@@ -769,6 +769,14 @@ function wireScenes(){ loadScenes(); refreshSceneSelect(); const sel=document.ge
   function refreshSceneSelect(){ const sel=document.getElementById('sceneSelect'); if(!sel) return; sel.innerHTML=_scenes.map(s=>`<option value='${s.id}'>${escapeHtml(s.name)}</option>`).join(''); }
 }
 
+// Fallback copy helper (if not already defined globally)
+if(typeof window.copyText !== 'function'){
+  window.copyText = async function(txt){
+    if(navigator.clipboard && window.isSecureContext){ try{ await navigator.clipboard.writeText(txt); return true; }catch{} }
+    const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch{} document.body.removeChild(ta); return true;
+  }
+}
+
 // --- Simple quick room creation (auto code) ---
 function genShortRoom(){ return Math.random().toString(36).replace(/[^a-z0-9]/g,'').slice(2,8); }
 function quickHostQuickRoom(){
@@ -780,6 +788,7 @@ function quickHostQuickRoom(){
     if(!prefs.server){ toast('Save a Relay or Firebase config first (Welcome)'); return; }
     mp.transport='ws'; mp.server=prefs.server; mp.room=room; mp.name=name; mp.isGM=true; mp.connected=false; saveMpPrefs(); connectWs(); setMpStatus('Hosting quick room'); toast('Quick room '+room); renderSessionBanner();
   }
+  tryUpdateHostCodeDisplay(room, true);
 }
 
 // --- Tab presence highlight (broadcast active view) ---
@@ -838,6 +847,16 @@ function angleSnap(x1,y1,x2,y2){ // Snap to 45 deg if Shift
   const dx=x2-x1, dy=y2-y1; const ang=Math.atan2(dy,dx); const step=Math.PI/4; const snapAng=Math.round(ang/step)*step; const len=Math.sqrt(dx*dx+dy*dy); return {x2:x1+Math.cos(snapAng)*len, y2:y1+Math.sin(snapAng)*len}; }
 function clearWallSelection(){ wallEditIndex=-1; document.getElementById('wallsCanvas')?.classList.remove('editing'); const existing=document.querySelectorAll('.wall-handle'); existing.forEach(e=>e.remove()); }
 function selectWall(idx){ clearWallSelection(); if(idx<0||idx>=walls.length) return; wallEditIndex=idx; const w=walls[idx]; const stage=document.getElementById('mapStage'); if(!stage) return; const mk=(x,y,cls)=>{ const h=document.createElement('div'); h.className='wall-handle '+cls; h.style.left=(x-5)+'px'; h.style.top=(y-5)+'px'; h.dataset.kind=cls; h.addEventListener('mousedown', startWallHandleDrag); stage.appendChild(h);}; mk(w.x1,w.y1,'start'); mk(w.x2,w.y2,'end'); showWallHint('Dragging endpoints. Delete: Alt+Click wall. Esc: exit edit.');
+}
+// Find nearest wall segment to (x,y) within maxDist (pixels); returns index or -1
+function findNearestWall(x,y,maxDist){
+  let best=-1, bestD = (typeof maxDist==='number'? maxDist : 10)+1;
+  for(let i=0;i<walls.length;i++){
+    const w=walls[i];
+    const d = typeof distPointToSeg==='function' ? distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2) : Infinity;
+    if(d<bestD){ bestD=d; best=i; }
+  }
+  return bestD <= (typeof maxDist==='number'? maxDist : 10) ? best : -1;
 }
 function startWallHandleDrag(e){ if(wallEditIndex<0) return; wallDragHandle=e.target; wallEditing=true; e.preventDefault(); const move=(ev)=>{ const stage=document.getElementById('mapStage'); const rect=stage.getBoundingClientRect(); let x=ev.clientX-rect.left, y=ev.clientY-rect.top; const p=snapPoint(x,y); x=p.x; y=p.y; const w=walls[wallEditIndex]; if(wallDragHandle.dataset.kind==='start'){ w.x1=x; w.y1=y; } else { w.x2=x; w.y2=y; } persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); selectWall(wallEditIndex); };
   const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); wallEditing=false; wallDragHandle=null; };
@@ -1233,15 +1252,11 @@ function initWelcomeLanding(){
   const joinBtn=document.getElementById('wlJoin');
   const soloBtn=document.getElementById('wlSolo');
   const inviteI=document.getElementById('wlInvite');
-  const relayI=document.getElementById('wlServerInline');
-  const relaySave=document.getElementById('wlSaveRelay');
-  const fbTa=document.getElementById('wlFbConfigInline');
-  const fbSave=document.getElementById('wlSaveFirebase');
+  // Advanced inline fields removed (relay/firebase saved via multiplayer modal if needed)
   // Load prefs
   const prefs=loadMpPrefs();
   if(nameI) nameI.value = prefs.name || '';
-  if(relayI) relayI.value = prefs.server || '';
-  if(fbTa && prefs.fbConfig) fbTa.value = JSON.stringify(prefs.fbConfig);
+  // Legacy inline relay/firebase inputs removed from simplified welcome
 
   function open(){ modal.classList.remove('hidden'); }
   function close(){ modal.classList.add('hidden'); }
@@ -1252,17 +1267,15 @@ function initWelcomeLanding(){
     const name=(nameI?.value||'').trim()||'GM';
     mp.name=name; mp.isGM=true; mp.connected=false; mp.room=genShortRoom();
     // Choose transport preference: Firebase if config present else relay if present else offline
-    if(fbTa?.value.trim()){
-      try{ const cfg=JSON.parse(fbTa.value.trim()); mp.transport='fb'; mp.fb={config:cfg, app:null, db:null, unsub:null}; }
-      catch{ toast('Bad Firebase JSON'); return; }
-    } else if(relayI?.value.trim()){
-      mp.transport='ws'; mp.server=relayI.value.trim();
-    } else {
-      mp.transport='ws'; mp.server=''; // offline local
-    }
+  // Transport preference decided by saved prefs (Firebase config or relay set elsewhere) else offline local
+  const prefs2=loadMpPrefs();
+  if(prefs2.fbConfig){ mp.transport='fb'; mp.fb={config:prefs2.fbConfig, app:null, db:null, unsub:null}; }
+  else if(prefs2.server){ mp.transport='ws'; mp.server=prefs2.server; }
+  else { mp.transport='ws'; mp.server=''; }
     saveMpPrefs();
     if(mp.transport==='fb') connectFirebase(); else if(mp.server) connectWs(); else { setMpStatus('Solo'); }
     toast('Room '+mp.room);
+  tryUpdateHostCodeDisplay(mp.room, true);
     close();
     // Jump to map
     document.querySelector(".nav-btn[data-view='map']")?.click();
@@ -1295,8 +1308,17 @@ function initWelcomeLanding(){
   soloBtn?.addEventListener('click', ()=>{
     const name=(nameI?.value||'').trim()||'GM'; mp.name=name; mp.isGM=true; mp.room=''; mp.connected=false; mp.transport='ws'; mp.server=''; saveMpPrefs(); setMpStatus('Solo'); close(); document.querySelector(".nav-btn[data-view='map']")?.click(); renderSessionBanner(); });
 
-  relaySave?.addEventListener('click', ()=>{ const v=relayI?.value.trim(); if(!v){ toast('Enter relay URL'); return; } mp.server=v; saveMpPrefs(); toast('Relay saved'); });
-  fbSave?.addEventListener('click', ()=>{ const raw=fbTa?.value.trim(); if(!raw){ toast('Enter Firebase config JSON'); return; } try{ const cfg=JSON.parse(raw); mp.fb={config:cfg, app:null, db:null, unsub:null}; mp.transport='fb'; saveMpPrefs(); toast('Firebase saved'); }catch{ toast('Invalid JSON'); } });
+  // Removed relaySave/fbSave buttons in simplified UI
+}
+
+function tryUpdateHostCodeDisplay(code, autoCopy){
+  const el=document.getElementById('hostCodeDisplay'); if(!el) return;
+  el.style.display='block';
+  el.textContent='Code: '+code;
+  if(autoCopy){
+    copyText(code).then(()=>{ el.classList.add('copied'); el.textContent='Code: '+code+' (copied)'; setTimeout(()=>{ if(el.textContent.startsWith('Code: '+code)) el.textContent='Code: '+code; el.classList.remove('copied'); }, 1600); }).catch(()=>{});
+  }
+  el.onclick=()=>{ copyText(code).then(()=>{ el.classList.add('copied'); el.textContent='Code: '+code+' (copied)'; setTimeout(()=>{ if(el.textContent.startsWith('Code: '+code)) el.textContent='Code: '+code; el.classList.remove('copied'); }, 1600); }); };
 }
 
 function renderSessionBanner(){
