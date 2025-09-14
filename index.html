@@ -130,42 +130,30 @@
             <button id="wallModeBtn" class="mini-btn">Walls</button>
             <button id="fogRevealBtn" class="mini-btn">Reveal</button>
             <button id="rulerBtn" class="mini-btn">Ruler</button>
+            <button id="fogFullBtn" class="mini-btn">Cover All</button>
+            <button id="fogClearBtn" class="mini-btn">Clear All</button>
           </div>
           <div class="map-right">
             <label>Grid <input type="number" id="gridSizeInput" value="50" min="20" max="120" step="5" style="width:70px" /></label>
             <label>Snap <input type="checkbox" id="snapToggle" checked /></label>
             <button id="exportImageBtn" class="mini-btn" title="Export PNG">PNG</button>
+            <label class="toggle"><input type="checkbox" id="visionAutoToggle" checked/> <span>Vision</span></label>
             <button id="mapMoreBtn" class="mini-btn">More…</button>
           </div>
         </div>
         <div id="mapMorePanel" class="map-more hidden">
           <div class="more-row">
-            <button id="addTokensBtn" class="mini-btn">Add Filtered as Tokens</button>
-            <button id="clearTokensBtn" class="mini-btn">Clear Tokens</button>
-            <button id="fogFullBtn" class="mini-btn">Fog Full</button>
-            <button id="fogClearBtn" class="mini-btn">Clear Fog</button>
-            <button id="visionToggleBtn" class="mini-btn">Vision Auto</button>
-            <label class="toggle"><input type="checkbox" id="simpleModeToggle" checked /> <span>Simple</span></label>
-            <label class="toggle"><input type="checkbox" id="perfModeToggle" /> <span>Perf</span></label>
-            <label class="toggle"><input type="checkbox" id="lockBoardToggle" /> <span>Lock</span></label>
+            <!-- Moved fog buttons to main toolbar for better accessibility -->
             <label class="toggle"><input type="checkbox" id="cursorsToggle" checked /> <span>Cursors</span></label>
           </div>
           <div class="more-row">
-            <div class="aoe-group">
-              <button id="addCircleTemplateBtn" class="mini-btn" title="Add circle template">◯</button>
-              <button id="addConeTemplateBtn" class="mini-btn" title="Add cone template">⌔</button>
-              <button id="addLineTemplateBtn" class="mini-btn" title="Add line template">／</button>
-            </div>
             <div class="fog-adv-group">
               <label>Brush <input type="range" id="fogBrushSize" min="20" max="200" value="90"></label>
               <select id="fogBrushShape"><option value="circle">Circle</option><option value="rect">Square</option></select>
               <button id="fogUndoBtn" class="mini-btn" title="Undo fog step">Undo</button>
             </div>
             <button id="bgImageBtn" class="mini-btn" title="Set background image">BG Img</button>
-            <button id="exportBoardBtn" class="mini-btn" title="Export board state">Export</button>
-            <button id="importBoardBtn" class="mini-btn" title="Import board state">Import</button>
             <input type="file" id="bgImageInput" accept="image/*" style="display:none" />
-            <input type="file" id="importBoardInput" accept="application/json" style="display:none" />
           </div>
           <div class="more-row">
             <div class="scenes-group">
@@ -178,15 +166,6 @@
               <label><input type="checkbox" id="showFogToggle" checked /> Fog</label>
               <label><input type="checkbox" id="showWallsToggle" checked /> Walls</label>
               <label><input type="checkbox" id="showTemplatesToggle" checked /> Templates</label>
-              <label><input type="checkbox" id="collideWallsToggle" /> Collide</label>
-              <button id="gmModeBtn" class="mini-btn" title="Enable GM tools (GM only)">Enable GM Mode</button>
-            </div>
-            <div class="mp-group">
-              <button id="hostGameBtn" class="mini-btn" title="Host a session as GM">Host</button>
-              <button id="joinGameBtn" class="mini-btn" title="Join a session as Player/GM">Join</button>
-              <button id="shareGameBtn" class="mini-btn" title="Copy join link">Share</button>
-              <label title="Allow players to edit the board"><input type="checkbox" id="playersEditToggle" /> Players Edit</label>
-              <span id="mpStatus" class="mp-status">Offline</span>
             </div>
             <button id="clearWallsBtn" class="mini-btn" title="Delete all walls">Clear Walls</button>
             <button id="clearTemplatesBtn" class="mini-btn" title="Delete all templates">Clear Templates</button>
@@ -292,7 +271,7 @@
       </section>
 
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
-      <section id="view-character" class="view hidden">
+  <section id="view-character" class="view">
         <div class="char-page">
           <div class="char-top">
             <div class="char-img-wrap" id="charImgWrap" title="Click to set image">

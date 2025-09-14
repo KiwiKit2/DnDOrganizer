@@ -69,9 +69,10 @@ body {display:flex;}
 #dataTable tbody tr.selected {outline:2px solid var(--accent);}
 
 .mini-btn, .accent-btn {all:unset;cursor:pointer;background:var(--accent);color:#fff;padding:8px 14px;border-radius:var(--radius-m);font-size:12px;font-weight:600;letter-spacing:.5px;box-shadow:0 2px 4px -2px rgba(0,0,0,.6),0 4px 10px -2px rgba(0,0,0,.4);}
-.mini-btn {background:var(--bg-raised);color:var(--text);border:1px solid var(--border);padding:6px 10px;font-weight:500;}
+.mini-btn {background:var(--bg-raised);color:var(--text);border:1px solid var(--border);padding:6px 10px;font-weight:500;transition:all 0.15s ease;}
 .mini-btn:hover {border-color:var(--border-accent);}
 .mini-btn:active {transform:translateY(1px);}
+.mini-btn.active {background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 0 8px rgba(74, 144, 226, 0.3);}
 .mini-btn.danger {color:#ff667d;border-color:#ff667d;background:rgba(255,80,110,0.08);} 
 .mini-btn.danger:hover {background:rgba(255,80,110,0.15);} 
 .accent-btn:hover {filter:brightness(1.1);}
@@ -135,22 +136,27 @@ select:focus {outline:2px solid var(--accent);}
 .main .topbar .hide-on-map{display:inline-flex}
 /* When Map view is active, hide marked controls */
 body:has(#view-map.view.active) .topbar .hide-on-map{display:none !important}
-.map-stage {position:relative;overflow:auto;border:1px solid var(--border);border-radius:18px;background:#0b0e10;min-height:520px;box-shadow:var(--shadow-1);} 
+.map-stage {position:relative;overflow:auto;border:1px solid var(--border);border-radius:18px;background:#0b0e10;min-height:520px;box-shadow:var(--shadow-1);transition:all 0.2s ease;} 
+.map-stage.mode-wall {cursor:crosshair;}
+.map-stage.mode-reveal {cursor:crosshair;}
+.map-stage.mode-ruler {cursor:crosshair;}
 #battleMap {background:repeating-conic-gradient(from 0deg,#111 0deg,#111 90deg,#101417 90deg,#101417 180deg);background-size:60px 60px;display:block;border-radius:14px;}
 .token-layer,.fog-layer,.walls-layer,.overlay-layer {position:absolute;left:0;top:0;inset:0;}
 .token-layer {pointer-events:auto;}
 .fog-layer {pointer-events:none;}
+.map-stage.mode-reveal .fog-layer {pointer-events:auto;cursor:crosshair;}
 .walls-layer {pointer-events:none;}
 .overlay-layer {pointer-events:auto;}
 .cursor-layer{position:absolute;left:0;top:0;inset:0;pointer-events:none;z-index:40}
 .remote-cursor{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px}
 .remote-cursor .dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 2px #000}
 .remote-cursor .tag{font-size:11px;background:var(--bg-alt);border:1px solid var(--border);padding:2px 6px;border-radius:10px;box-shadow:var(--shadow-1)}
-.token {position:absolute;transform:translate(-50%,-50%);width:60px;height:60px;border:2px solid var(--accent);border-radius:50%;background:#222 center/cover no-repeat;box-shadow:0 4px 12px -4px rgba(0,0,0,.6);} 
+.token {position:absolute;transform:translate(-50%,-50%);width:50px;height:50px;border:2px solid var(--accent);border-radius:50%;background:#4a90e2 center/cover no-repeat;box-shadow:0 4px 12px -4px rgba(0,0,0,.6);cursor:pointer;user-select:none;} 
 .token[data-type="enemy"] {border-color:#ff5576;}
 .token[data-type="player"] {border-color:#4f8dff;}
 .token.selected {outline:3px solid #fff;}
-.token .badge-stack {position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);display:flex;gap:4px;}
+.token .direction-indicator {position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid white;pointer-events:none;z-index:10;}
+.token .badge-stack {position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);display:flex;gap:4px;}
 .token .hp-badge {background:#1a2228;color:#fff;font-size:9px;padding:2px 5px;border-radius:10px;border:1px solid var(--border);min-width:26px;text-align:center;}
 .token .status-dot {width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px #000;}
 .map-hint {font-size:12px;color:var(--text-dim);margin-top:10px;}
@@ -276,6 +282,13 @@ textarea#sheetUrlInput:focus {outline:2px solid var(--accent);}
 .welcome-simple{display:flex;flex-direction:column;gap:10px}
 .welcome-simple label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-dim);font-weight:600}
 .welcome-simple input{background:var(--bg-raised);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:12px;font-size:13px}
+/* Welcome modal refinements */
+.welcome-simple .wl-row{display:flex;gap:8px;margin-top:6px}
+.welcome-simple .join-block{margin-top:12px}
+.welcome-simple .host-code{margin-top:10px;padding:8px 10px;background:var(--bg-raised);border:1px solid var(--border);border-radius:10px;font-weight:600;letter-spacing:1px;text-align:center;font-size:15px}
+.welcome-simple .host-code.copied{outline:2px solid var(--accent);}
+.adv-box{margin-top:12px;padding:6px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt)}
+.adv-box summary{cursor:pointer;font-weight:500;}
 .or-sep{display:flex;align-items:center;gap:8px;opacity:.7}
 .or-sep::before,.or-sep::after{content:"";height:1px;background:var(--border);flex:1}
 

@@ -1,4 +1,5 @@
 // Globals (Sheet, Persist) used to keep file:// usage working without module loader.
+console.log('=== UI.JS LOADING ===');
 
 let state = {
   headers: [],
@@ -21,6 +22,11 @@ const els = {
   statusLine: null,
   autoToggle: null,
 };
+
+// Moves feature (lightweight list independent from sheet)
+let moves = JSON.parse(localStorage.getItem('movesStore')||'[]');
+let editingMove = null;
+let movesUndoStack=[]; let movesRedoStack=[]; // new undo/redo stacks
 
 async function init() {
   cacheEls();
@@ -48,10 +54,8 @@ async function init() {
 document.addEventListener('DOMContentLoaded', ()=> { try{ init(); }catch(e){ console.error('init failed', e); } });
 
 function sheetConfigured() {
-  try{
-    const url = new URL(mp.server);
-    if(url.protocol!=='ws:' && url.protocol!=='wss:'){ toast('Server URL must start with ws:// or wss://'); return; }
-  }catch{ toast('Invalid server URL'); return; }
+  // Determine if a sheet URL (published CSV) is configured
+  try{ const u = window.getSheetUrl && window.getSheetUrl(); return !!(u && u.includes('http')); }catch{ return false; }
 }
 
 function promptForSheet() {
@@ -87,9 +91,15 @@ function wireNav() {
       btn.classList.add('active');
       const v = btn.dataset.view;
       document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active'));
-      document.querySelector('#view-' + v).classList.add('active');
-  if (v === 'compendium' || v === 'entities') buildCompendium();
-  if (v === 'map') refreshMap();
+      const target = document.querySelector('#view-' + v);
+      if(target){ target.classList.add('active'); }
+      if (v === 'compendium' || v === 'entities') buildCompendium();
+      if (v === 'map') {
+        console.log('=== MAP TAB ACTIVATED ===');
+        refreshMap();
+        initMapBoard(); // Initialize board when map tab is clicked
+      }
+      if (v === 'character') { buildCharStats(); renderCharMoves(); }
     });
   });
   document.getElementById('themeSwitch').addEventListener('click', toggleTheme);
@@ -137,10 +147,12 @@ async function reload() {
   state.objects = data.objects;
     state.numericCols = data.numericCols;
     state.lastLoad = new Date();
-    buildTable();
+  buildTable();
     buildColumnFilter();
     applyFilters();
     buildKanban();
+  // Rebuild character stats panel in case new headers provide stat keys
+  buildCharStats();
   Persist.saveCache(state);
   const after = { headers: state.headers, objects: state.objects };
   const { added, removed } = Persist.diffCounts(before.headers.length? before : null, after);
@@ -234,7 +246,7 @@ function applyFilters() {
   if (state.sort.col) sortBy(state.sort.col); else renderRows();
   const view = document.querySelector('.nav-btn.active')?.dataset.view;
   if (view === 'board') buildKanban();
-  if (view === 'compendium') buildCompendium();
+  if (view === 'compendium' || view === 'entities') buildCompendium();
   if (view === 'map') refreshMap();
 }
 
@@ -425,33 +437,241 @@ function refreshMap() {
   for (let y=0; y<canvas.height; y+=gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const addBtn = document.getElementById('addTokensBtn');
-  const clearBtn = document.getElementById('clearTokensBtn');
-  if (addBtn) addBtn.addEventListener('click', addTokensFromFiltered);
-  if (clearBtn) clearBtn.addEventListener('click', () => { 
-    if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
-    document.getElementById('tokenLayer').innerHTML='';
-    saveTokens();
-    if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'tokensClear'}});
-  });
-  const gridInput = document.getElementById('gridSizeInput');
-  if (gridInput){ gridInput.value = loadPref('gridSize', gridInput.value); gridInput.addEventListener('change', (e)=> { savePref('gridSize', e.target.value); refreshMap(); }); }
-  const snapT = document.getElementById('snapToggle'); if(snapT){ const val = loadPref('snapToggle', 'true'); snapT.checked = val==='true'; snapT.addEventListener('change', ()=> savePref('snapToggle', snapT.checked?'true':'false')); }
-  const layer = document.getElementById('tokenLayer');
-  layer?.addEventListener('mousedown', e=> { if (e.target.classList.contains('token')) { const additive = e.ctrlKey||e.shiftKey; selectToken(e.target, additive); dragToken(e); } });
-  document.getElementById('addSingleTokenBtn')?.addEventListener('click', ()=> newAdHocToken());
-  setupFog();
-  loadTokens();
-  // Ensure existing tokens have stable IDs
+// Board state management
+let boardModes = { wall: false, reveal: false, ruler: false };
+
+function initMapBoard(){
+  console.log('=== INITMAPBOARD CALLED ===');
+  const must=['battleMap','tokenLayer','fogCanvas','wallsCanvas'];
+  let missing=must.filter(id=> !document.getElementById(id));
+  if(missing.length){ 
+    console.log('Missing elements:', missing);
+    setTimeout(initMapBoard,50); 
+    return; 
+  }
+  
+  console.log('=== ALL ELEMENTS FOUND, PROCEEDING ===');
+  console.log('Initializing board with all required elements found');
+  
+  // Basic grid & snap
+  const gridInput=document.getElementById('gridSizeInput'); 
+  if(gridInput){ gridInput.value=loadPref('gridSize', gridInput.value); gridInput.onchange=e=>{ savePref('gridSize', e.target.value); refreshMap(); computeVisionAuto(); }; }
+  const snapT=document.getElementById('snapToggle'); 
+  if(snapT){ const val=loadPref('snapToggle','true'); snapT.checked=val==='true'; snapT.onchange=()=> savePref('snapToggle', snapT.checked?'true':'false'); }
+  
+  // Token layer interactions
+  const layer=document.getElementById('tokenLayer'); 
+  if(layer){ 
+    layer.onmousedown = e=> { if(e.target.classList.contains('token')){ const additive=e.ctrlKey||e.shiftKey; selectToken(e.target, additive); dragToken(e); } }; 
+    // Add scroll wheel rotation for tokens when not dragging
+    layer.addEventListener('wheel', (e) => {
+      if (e.target.classList.contains('token')) {
+        e.preventDefault();
+        const token = e.target;
+        if(!( !mp.connected || mp.isGM || mp.allowEdits )){ 
+          toast('Editing disabled'); 
+          return; 
+        }
+        
+        const currentDirection = parseFloat(token.dataset.direction || '0');
+        const rotationStep = 0.1; // Smaller step for precise control when not dragging
+        const newDirection = currentDirection + (e.deltaY > 0 ? rotationStep : -rotationStep);
+        
+        // Normalize to 0-2π range
+        let normalizedDirection = newDirection;
+        while (normalizedDirection < 0) normalizedDirection += Math.PI * 2;
+        while (normalizedDirection >= Math.PI * 2) normalizedDirection -= Math.PI * 2;
+        
+        updateTokenDirection(token, normalizedDirection);
+        saveTokens();
+      }
+    }, { passive: false });
+  }
+  
+  // Core toolbar buttons with enhanced debugging
+  const addSingle=document.getElementById('addSingleTokenBtn'); 
+  if(addSingle) { 
+    addSingle.addEventListener('click', (e) => {
+      console.log('=== ADD TOKEN CLICKED ===', e);
+      addSingle.style.background = 'red'; // Visual feedback
+      setTimeout(() => addSingle.style.background = '', 200);
+      newAdHocToken(); 
+    });
+    console.log('Bound Add Token button');
+  } else {
+    console.error('addSingleTokenBtn NOT FOUND');
+  }
+  
+  const wallBtn=document.getElementById('wallModeBtn'); 
+  if(wallBtn) { 
+    wallBtn.addEventListener('click', (e) => {
+      console.log('=== WALL MODE CLICKED ===', e);
+      wallBtn.style.background = 'red'; // Visual feedback
+      setTimeout(() => wallBtn.style.background = '', 200);
+      toggleMode('wall'); 
+    });
+    console.log('Bound Walls button');
+  } else {
+    console.error('wallModeBtn NOT FOUND');
+  }
+  
+  const revealBtn=document.getElementById('fogRevealBtn'); 
+  if(revealBtn) { 
+    revealBtn.addEventListener('click', (e) => {
+      console.log('=== REVEAL MODE CLICKED ===', e);
+      revealBtn.style.background = 'red'; // Visual feedback
+      setTimeout(() => revealBtn.style.background = '', 200);
+      toggleMode('reveal'); 
+    });
+    console.log('Bound Reveal button');
+  } else {
+    console.error('fogRevealBtn NOT FOUND');
+  }
+  
+  const rulerBtn=document.getElementById('rulerBtn'); 
+  if(rulerBtn) { 
+    rulerBtn.addEventListener('click', (e) => {
+      console.log('=== RULER MODE CLICKED ===', e);
+      rulerBtn.style.background = 'red'; // Visual feedback
+      setTimeout(() => rulerBtn.style.background = '', 200);
+      toggleMode('ruler'); 
+    });
+    console.log('Bound Ruler button');
+  } else {
+    console.error('rulerBtn NOT FOUND');
+  }
+  
+  // Vision toggle (main toolbar)
+  const visionToggle=document.getElementById('visionAutoToggle'); 
+  if(visionToggle) { 
+    visionToggle.checked = boardSettings.visionAuto; 
+    visionToggle.onchange=()=> { 
+      boardSettings.visionAuto = visionToggle.checked; 
+      console.log('Vision toggle:', boardSettings.visionAuto);
+      if(boardSettings.visionAuto) computeVisionAuto(); 
+    }; 
+    console.log('Bound Vision toggle');
+  }
+  
+  // Fog controls - CRITICAL: These need to work
+  const fogFull=document.getElementById('fogFullBtn'); 
+  if(fogFull) { 
+    fogFull.addEventListener('click', (e) => {
+      console.log('=== COVER ALL CLICKED ===', e);
+      fogFull.style.background = 'red'; // Visual feedback
+      setTimeout(() => fogFull.style.background = '', 200);
+      pushFogHistory(); 
+      coverFog(); 
+    });
+    console.log('Bound Cover All button');
+  } else {
+    console.error('fogFullBtn not found!');
+  }
+  
+  const fogClear=document.getElementById('fogClearBtn'); 
+  if(fogClear) { 
+    fogClear.addEventListener('click', (e) => {
+      console.log('=== CLEAR ALL CLICKED ===', e);
+      fogClear.style.background = 'red'; // Visual feedback
+      setTimeout(() => fogClear.style.background = '', 200);
+      pushFogHistory(); 
+      clearFog(); 
+    });
+    console.log('Bound Clear All button');
+  } else {
+    console.error('fogClearBtn not found!');
+  }
+  
+  // Layer visibility toggles
+  document.getElementById('showFogToggle')?.addEventListener('change', e=> { document.getElementById('fogCanvas').style.display = e.target.checked? '' : 'none'; });
+  document.getElementById('showWallsToggle')?.addEventListener('change', e=> { document.getElementById('wallsCanvas').style.display = e.target.checked? '' : 'none'; });
+  document.getElementById('showTemplatesToggle')?.addEventListener('change', e=> { document.getElementById('overlayCanvas').style.display = e.target.checked? '' : 'none'; });
+  
+  // Advanced actions (in More panel)
+  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')){ walls=[]; persistWalls(); drawWalls(); toast('Walls cleared'); computeVisionAuto(); } });
+  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')){ templates=[]; persistTemplates(); drawTemplates(); toast('Templates cleared'); } });
+  
+  // Fog undo button
+  const fogUndoBtn = document.getElementById('fogUndoBtn');
+  if(fogUndoBtn) {
+    fogUndoBtn.addEventListener('click', () => {
+      console.log('Fog undo clicked');
+      undoFogStep();
+      toast('Fog undone');
+    });
+    console.log('Bound Fog Undo button');
+  }
+  
+  // More panel toggle
+  const moreBtn=document.getElementById('mapMoreBtn'); const morePanel=document.getElementById('mapMorePanel');
+  if(moreBtn && morePanel){ 
+    moreBtn.onclick=()=> { 
+      console.log('More panel toggle clicked');
+      morePanel.classList.toggle('hidden'); 
+    };
+    console.log('Bound More panel toggle');
+  }
+  
+  setupFog(); loadTokens(); refreshMap();
   try{ ensureTokenIds && ensureTokenIds(); }catch{}
-  // Layer toggles
-  document.getElementById('showFogToggle')?.addEventListener('change', e=> document.getElementById('fogCanvas').style.display = e.target.checked? '' : 'none');
-  document.getElementById('showWallsToggle')?.addEventListener('change', e=> document.getElementById('wallsCanvas').style.display = e.target.checked? '' : 'none');
-  document.getElementById('showTemplatesToggle')?.addEventListener('change', e=> document.getElementById('overlayCanvas').style.display = e.target.checked? '' : 'none');
-  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')) { walls=[]; persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Walls cleared'); } });
-  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')) { templates=[]; persistTemplates(); drawTemplates(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'templates', templates}}); toast('Templates cleared'); } });
-});
+  if(boardSettings.visionAuto) computeVisionAuto();
+  
+  // DEBUG: Test all button availability
+  console.log('=== BUTTON AVAILABILITY TEST ===');
+  const testButtons = ['addSingleTokenBtn', 'wallModeBtn', 'fogRevealBtn', 'rulerBtn', 'fogFullBtn', 'fogClearBtn', 'mapMoreBtn'];
+  testButtons.forEach(id => {
+    const btn = document.getElementById(id);
+    console.log(`${id}: ${btn ? 'FOUND' : 'NOT FOUND'}`);
+    if (btn) {
+      console.log(`  - Has click listeners: ${btn.onclick ? 'onclick set' : 'no onclick'}`);
+      console.log(`  - Visible: ${btn.offsetWidth > 0 && btn.offsetHeight > 0}`);
+    }
+  });
+  
+  console.log('Board initialization complete');
+}
+
+function toggleMode(mode){
+  console.log('Switching to mode:', mode);
+  
+  // Clear all modes first
+  Object.keys(boardModes).forEach(k=> boardModes[k] = false);
+  
+  // Set new mode
+  boardModes[mode] = true;
+  
+  // Update button states with visual feedback
+  const buttons = {
+    wall: document.getElementById('wallModeBtn'),
+    reveal: document.getElementById('fogRevealBtn'),
+    ruler: document.getElementById('rulerBtn')
+  };
+  
+  Object.entries(buttons).forEach(([key, btn]) => {
+    if(btn) {
+      btn.classList.toggle('active', boardModes[key]);
+      if(boardModes[key]) {
+        // Flash button to show activation
+        btn.style.background = '#4a90e2';
+        setTimeout(() => btn.style.background = '', 150);
+      }
+    }
+  });
+  
+  // Set canvas cursor and stage class
+  const stage = document.getElementById('mapStage');
+  if(stage) {
+    stage.className = `map-stage mode-${mode}`;
+    
+    // Add visual mode indicator
+    const modeText = mode.charAt(0).toUpperCase() + mode.slice(1);
+    toast(`${modeText} mode active`);
+  }
+  
+  console.log('Mode switched to:', mode, 'boardModes:', boardModes);
+}
+
+// Board initialization will be called when map tab is activated
 
 function addTokensFromFiltered() {
   const layer = document.getElementById('tokenLayer');
@@ -499,32 +719,97 @@ function addTokensFromFiltered() {
 
 function dragToken(e) {
   const token = e.target;
-  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
-  let sx = e.clientX, sy = e.clientY;
+  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ 
+    toast('Editing disabled'); 
+    return; 
+  }
+  
+  let startX = e.clientX;
+  let startY = e.clientY;
   const selected = [...document.querySelectorAll('.token.selected')];
-  const moving = selected.length>1 && selected.includes(token) ? selected : [token];
-  const starts = moving.map(t=> ({t, x:parseFloat(t.style.left), y:parseFloat(t.style.top)}));
-  function move(ev) {
-    const dx = ev.clientX - sx; const dy = ev.clientY - sy;
-  starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
+  const moving = selected.length > 1 && selected.includes(token) ? selected : [token];
+  const startPositions = moving.map(t => ({
+    token: t, 
+    x: parseFloat(t.style.left), 
+    y: parseFloat(t.style.top)
+  }));
+  
+  let isDragging = true;
+  
+  // Handle scroll wheel rotation during drag
+  function handleWheel(ev) {
+    if (!isDragging) return;
+    ev.preventDefault();
+    
+    const currentDirection = parseFloat(token.dataset.direction || '0');
+    const rotationStep = 0.2; // Smooth rotation
+    const newDirection = currentDirection + (ev.deltaY > 0 ? rotationStep : -rotationStep);
+    
+    // Normalize to 0-2π range
+    let normalizedDirection = newDirection;
+    while (normalizedDirection < 0) normalizedDirection += Math.PI * 2;
+    while (normalizedDirection >= Math.PI * 2) normalizedDirection -= Math.PI * 2;
+    
+    updateTokenDirection(token, normalizedDirection);
   }
-  function up() {
-    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+  
+  function handleMove(ev) {
+    const deltaX = ev.clientX - startX;
+    const deltaY = ev.clientY - startY;
+    
+    startPositions.forEach(pos => {
+      pos.token.style.left = (pos.x + deltaX) + 'px';
+      pos.token.style.top = (pos.y + deltaY) + 'px';
+    });
+    
+    // Update vision in real-time while dragging
+    if(boardSettings.visionAuto) computeVisionAuto();
+  }
+  
+  function handleMouseUp() {
+    isDragging = false;
+    document.removeEventListener('mousemove', handleMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('wheel', handleWheel);
+    
     // Snap to grid if enabled
-    const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
-    if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
-  // Optional collide with walls: simple revert if token crosses a wall segment center area
-  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){
-      // try to slide to a nearby free spot
-      moving.forEach(s=> { const alt=findSlidePosition(parseFloat(s.style.left), parseFloat(s.style.top), 32); if(alt){ s.style.left=alt.x+'px'; s.style.top=alt.y+'px'; } });
-      // if still blocked, revert
-      if(moving.some(t=> tokenHitsWall(t))){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); }
-    } }
-  saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
-  // Broadcast moves to peers
-  moving.forEach(t=> { if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'move', id:(t.dataset.id||''), x:parseFloat(t.style.left), y:parseFloat(t.style.top)}}); });
+    const snap = document.getElementById('snapToggle')?.checked;
+    const gridSize = +document.getElementById('gridSizeInput')?.value || 50;
+    
+    if(snap) {
+      moving.forEach(t => {
+        const x = parseFloat(t.style.left);
+        const y = parseFloat(t.style.top);
+        const snapX = Math.round(x / gridSize) * gridSize;
+        const snapY = Math.round(y / gridSize) * gridSize;
+        t.style.left = snapX + 'px';
+        t.style.top = snapY + 'px';
+      });
+    }
+    
+    saveTokens();
+    if(boardSettings.visionAuto) computeVisionAuto();
+    
+    // Broadcast position updates for multiplayer
+    moving.forEach(t => {
+      if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) {
+        broadcast({
+          type: 'op', 
+          op: {
+            kind: 'move', 
+            id: (t.dataset.id || ''), 
+            x: parseFloat(t.style.left), 
+            y: parseFloat(t.style.top),
+            direction: parseFloat(t.dataset.direction || '0')
+          }
+        });
+      }
+    });
   }
-  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  
+  document.addEventListener('mousemove', handleMove);
+  document.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('wheel', handleWheel, { passive: false });
 }
 
 function tokenHitsWall(tok){ const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); const r=30; return walls.some(w=> distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2) < r); }
@@ -543,46 +828,216 @@ function testImage(src, cb) {
 // Token & Fog enhancements
 function selectToken(t){ document.querySelectorAll('.token.selected').forEach(x=>x.classList.remove('selected')); t.classList.add('selected'); }
 function newAdHocToken(){
-  const layer = document.getElementById('tokenLayer'); if(!layer) return;
-  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
-  const name = prompt('Token label (optional):','');
-  const div = document.createElement('div');
-  div.className='token';
-  div.style.left='100px'; div.style.top='100px';
-  div.title = name || 'token';
-  div.dataset.id = uid();
-  layer.appendChild(div); saveTokens();
-  if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){
-    const payload = { id:div.dataset.id, x:100, y:100, title:div.title, type:div.dataset.type||'', hp:div.dataset.hp||'', vision:div.dataset.vision||'', bg:div.style.backgroundImage||'' };
-    broadcast({type:'op', op:{kind:'tokenAdd', token: payload}});
+  console.log('Creating new token...');
+  const layer = document.getElementById('tokenLayer'); 
+  if(!layer) { 
+    console.error('tokenLayer not found!'); 
+    return; 
+  }
+  
+  // Check permissions
+  const canEdit = !mp.connected || mp.isGM || mp.allowEdits;
+  if(!canEdit){ 
+    toast('Editing disabled'); 
+    return; 
+  }
+  
+  const name = prompt('Token name:','') || 'Token';
+  
+  // Create the token element
+  const token = document.createElement('div');
+  token.className = 'token';
+  
+  // Use grid-aligned center positioning (map center)
+  const mapContainer = document.getElementById('mapContainer');
+  const centerX = mapContainer ? mapContainer.offsetWidth / 2 : 400;
+  const centerY = mapContainer ? mapContainer.offsetHeight / 2 : 300;
+  
+  // Apply grid snapping if enabled
+  const snapped = snapPoint(centerX, centerY);
+  
+  // Set position to center point (CSS transform will center the token on this point)
+  token.style.left = snapped.x + 'px';
+  token.style.top = snapped.y + 'px';
+  
+  // Don't override CSS - let the CSS handle size and centering
+  token.title = name;
+  token.dataset.id = uid();
+  token.dataset.vision = '180';
+  token.dataset.direction = '0'; // 0 = facing right
+  
+  // Create direction indicator using CSS triangle approach
+  const indicator = document.createElement('div');
+  indicator.className = 'direction-indicator';
+  indicator.style.position = 'absolute';
+  indicator.style.top = '-8px';
+  indicator.style.left = '50%';
+  indicator.style.transform = 'translateX(-50%) rotate(0deg)';
+  indicator.style.width = '0';
+  indicator.style.height = '0';
+  indicator.style.borderLeft = '6px solid transparent';
+  indicator.style.borderRight = '6px solid transparent';
+  indicator.style.borderBottom = '12px solid white';
+  indicator.style.pointerEvents = 'none';
+  indicator.style.zIndex = '10';
+  
+  token.appendChild(indicator);
+  layer.appendChild(token);
+  
+  saveTokens();
+  if(boardSettings.visionAuto) computeVisionAuto();
+  
+  console.log('Token created successfully:', name);
+  toast('Token added: ' + name);
+}
+
+function updateTokenDirection(token, direction) {
+  const indicator = token.querySelector('.direction-indicator');
+  if (indicator) {
+    const degrees = direction * 180 / Math.PI;
+    indicator.style.transform = `translateX(-50%) rotate(${degrees}deg)`;
+  }
+  
+  // Update the dataset
+  token.dataset.direction = direction.toString();
+  
+  // Refresh vision if auto-vision is enabled
+  if(boardSettings.visionAuto) {
+    computeVisionAuto();
   }
 }
+
 function saveTokens(){
   const layer = document.getElementById('tokenLayer'); if(!layer) return;
-  const tokens=[...layer.querySelectorAll('.token')].map(t=>({id:t.dataset.id||uid(),x:parseFloat(t.style.left),y:parseFloat(t.style.top),title:t.title,type:t.dataset.type||'',bg:t.style.backgroundImage||'',hp:t.dataset.hp||'',vision:t.dataset.vision||''}));
+  const tokens=[...layer.querySelectorAll('.token')].map(t=>({
+    id:t.dataset.id||uid(),
+    x:parseFloat(t.style.left),
+    y:parseFloat(t.style.top),
+    title:t.title,
+    type:t.dataset.type||'',
+    bg:t.style.backgroundImage||'',
+    hp:t.dataset.hp||'',
+    vision:t.dataset.vision||'',
+    direction:t.dataset.direction||'0'
+  }));
   try { localStorage.setItem('mapTokens', JSON.stringify(tokens)); } catch{}
 }
 function loadTokens(){
-  try { const raw = localStorage.getItem('mapTokens'); if(!raw) return; const arr=JSON.parse(raw); const layer=document.getElementById('tokenLayer'); if(!layer) return; layer.innerHTML=''; arr.forEach(o=> { const d=document.createElement('div'); d.className='token'; d.dataset.id=o.id||uid(); d.style.left=o.x+'px'; d.style.top=o.y+'px'; d.title=o.title; if(o.type) d.dataset.type=o.type; if(o.bg) d.style.backgroundImage=o.bg; if(o.hp) d.dataset.hp=o.hp; if(o.vision) d.dataset.vision=o.vision; layer.appendChild(d); updateTokenBadges(d); }); } catch {}
+  try { 
+    const raw = localStorage.getItem('mapTokens'); 
+    if(!raw) return; 
+    const arr = JSON.parse(raw); 
+    const layer = document.getElementById('tokenLayer'); 
+    if(!layer) return; 
+    layer.innerHTML = ''; 
+    
+    arr.forEach(tokenData => { 
+      const token = document.createElement('div'); 
+      token.className = 'token'; 
+      token.dataset.id = tokenData.id || uid(); 
+      token.style.left = tokenData.x + 'px'; 
+      token.style.top = tokenData.y + 'px'; 
+      token.title = tokenData.title || 'Token'; 
+      
+      if(tokenData.type) token.dataset.type = tokenData.type; 
+      if(tokenData.bg) token.style.backgroundImage = tokenData.bg; 
+      if(tokenData.hp) token.dataset.hp = tokenData.hp; 
+      if(tokenData.vision) token.dataset.vision = tokenData.vision; 
+      
+      // Set direction (default to 0 if not specified)
+      const direction = parseFloat(tokenData.direction || '0');
+      token.dataset.direction = direction.toString();
+      
+      // Create direction indicator using CSS triangle approach
+      const indicator = document.createElement('div');
+      indicator.className = 'direction-indicator';
+      const degrees = direction * 180 / Math.PI;
+      indicator.style.transform = `translateX(-50%) rotate(${degrees}deg)`;
+      
+      token.appendChild(indicator);
+      layer.appendChild(token); 
+      
+      updateTokenBadges(token);
+    }); 
+    
+    if(boardSettings.visionAuto) computeVisionAuto(); 
+  } catch(e) {
+    console.error('Error loading tokens:', e);
+  }
 }
+
 // Ensure tokens have stable IDs for multiplayer references
-function ensureTokenIds(){ const layer=document.getElementById('tokenLayer'); if(!layer) return; let changed=false; [...layer.querySelectorAll('.token')].forEach(t=> { if(!t.dataset.id){ t.dataset.id = uid(); changed=true; } }); if(changed) saveTokens(); }
+function ensureTokenIds(){ 
+  const layer = document.getElementById('tokenLayer'); 
+  if(!layer) return; 
+  let changed = false; 
+  [...layer.querySelectorAll('.token')].forEach(t => { 
+    if(!t.dataset.id){ 
+      t.dataset.id = uid(); 
+      changed = true; 
+    } 
+  }); 
+  if(changed) saveTokens(); 
+}
 
 let fogCtx, fogMode='none';
 function setupFog(){
   const canvas = document.getElementById('fogCanvas'); if(!canvas) return;
   fogCtx = canvas.getContext('2d');
-  document.getElementById('fogFullBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } pushFogHistory(); coverFog(); fogMode='none'; saveFog(); });
-  document.getElementById('fogClearBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } pushFogHistory(); clearFog(); fogMode='none'; saveFog(); });
-  document.getElementById('fogRevealBtn')?.addEventListener('click', (e)=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); e.preventDefault(); return; } fogMode='reveal'; });
-  coverFog(); loadFog();
-  canvas.addEventListener('mousedown', e=> { if(!( !mp.connected || mp.isGM || mp.allowEdits )) return; if(fogMode==='reveal'){ pushFogHistory(); revealAt(e.offsetX,e.offsetY,true); const mv=ev=> { revealAt(ev.offsetX,ev.offsetY,false); }; const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);saveFog();}; document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);} });
+  console.log('Setting up fog canvas:', canvas.width, 'x', canvas.height);
+  
+  // Make fog canvas interactive during reveal mode
+  canvas.addEventListener('mousedown', e=> { 
+    if(!boardModes.reveal) return;
+    if(!( !mp.connected || mp.isGM || mp.allowEdits )) return; 
+    console.log('Fog reveal started at:', e.offsetX, e.offsetY);
+    pushFogHistory(); 
+    revealAt(e.offsetX,e.offsetY,true); 
+    const mv=ev=> { revealAt(ev.offsetX,ev.offsetY,false); }; 
+    const up=()=>{
+      document.removeEventListener('mousemove',mv);
+      document.removeEventListener('mouseup',up);
+      if(boardSettings.visionAuto) computeVisionAuto();
+      console.log('Fog reveal ended');
+    }; 
+    document.addEventListener('mousemove',mv); 
+    document.addEventListener('mouseup',up);
+  });
+  
+  loadFog(); // load existing base; vision layer computed below
+  if(boardSettings.visionAuto) computeVisionAuto();
 }
-function coverFog(){ if(!fogCtx) return; fogCtx.globalCompositeOperation='source-over'; fogCtx.fillStyle='rgba(0,0,0,0.85)'; fogCtx.fillRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
-function clearFog(){ if(!fogCtx) return; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); }
-function revealAt(x,y,start){ if(!fogCtx) return; const r = +document.getElementById('fogBrushSize')?.value||90; const shape = document.getElementById('fogBrushShape')?.value||'circle'; fogCtx.globalCompositeOperation='destination-out'; if(shape==='rect'){ const w=r, h=r; fogCtx.fillRect(x-w/2,y-h/2,w,h); } else { fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); } }
-function saveFog(){ if(!fogCtx) return; try { localStorage.setItem('fogData', fogCtx.canvas.toDataURL()); } catch {} }
-function loadFog(){ try { const d=localStorage.getItem('fogData'); if(!d||!fogCtx) return; const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); }; img.src=d; } catch {} }
+function coverFog(){ 
+  console.log('coverFog called, fogCtx:', !!fogCtx);
+  if(!fogCtx) { 
+    console.error('fogCtx not initialized!'); 
+    return; 
+  } 
+  fogCtx.globalCompositeOperation='source-over'; 
+  fogCtx.fillStyle='rgba(0,0,0,0.85)'; 
+  fogCtx.fillRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); 
+  saveFogBase(); 
+  console.log('Fog covered');
+}
+
+function clearFog(){ 
+  console.log('clearFog called, fogCtx:', !!fogCtx);
+  if(!fogCtx) { 
+    console.error('fogCtx not initialized!'); 
+    return; 
+  } 
+  fogCtx.globalCompositeOperation='source-over'; 
+  fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); 
+  saveFogBase(); 
+  console.log('Fog cleared');
+}
+function revealAt(x,y,start){ if(!fogCtx) return; const r = +document.getElementById('fogBrushSize')?.value||90; const shape = document.getElementById('fogBrushShape')?.value||'circle'; fogCtx.globalCompositeOperation='destination-out'; if(shape==='rect'){ const w=r, h=r; fogCtx.fillRect(x-w/2,y-h/2,w,h); } else { fogCtx.beginPath(); fogCtx.arc(x,y,r,0,Math.PI*2); fogCtx.fill(); } if(!start) { saveFogBaseDebounced(); } }
+// Persistent base fog (manual reveals) separate from dynamic vision
+function saveFogBase(){ if(!fogCtx) return; try{ localStorage.setItem('fogBaseData', fogCtx.canvas.toDataURL()); }catch{} }
+let _fogSaveT=null; function saveFogBaseDebounced(){ clearTimeout(_fogSaveT); _fogSaveT=setTimeout(()=>{ saveFogBase(); if(boardSettings.visionAuto) computeVisionAuto(); }, 140); }
+function loadFog(){ try { const keyData = localStorage.getItem('fogBaseData') || localStorage.getItem('fogData'); if(!keyData||!fogCtx) { coverFog(); saveFogBase(); return; } const img=new Image(); img.onload=()=> { fogCtx.globalCompositeOperation='source-over'; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.drawImage(img,0,0); if(boardSettings.visionAuto) computeVisionAuto(); }; img.src=keyData; } catch { coverFog(); saveFogBase(); } }
+// Legacy wrappers (no‑ops now) kept for compatibility
+function saveFog() { /* dynamic vision no longer persisted; base handled via saveFogBase */ }
 
 // ---------------- Advanced Map Enhancements ----------------
 // Data models
@@ -600,6 +1055,8 @@ function applyBoardBackground(){
 }
 async function handleBgUpload(e){ const file=e.target.files && e.target.files[0]; if(!file) return; try{ const url = await new Promise(r=>{ const rd=new FileReader(); rd.onload=()=>r(rd.result); rd.readAsDataURL(file); }); boardSettings.bgImage=url; persistBoardSettings(); applyBoardBackground(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'bg', data:url}}); toast('Background set'); }catch(err){ console.error(err); toast('BG failed'); } finally { e.target.value=''; } }
 let fogHistory = [];
+function pushFogHistory(){ if(!fogCtx) return; try{ fogHistory.push(fogCtx.canvas.toDataURL()); if(fogHistory.length>24) fogHistory.shift(); }catch{} }
+function undoFogStep(){ if(!fogCtx || !fogHistory.length) return; const last=fogHistory.pop(); if(!last) return; const img=new Image(); img.onload=()=>{ fogCtx.globalCompositeOperation='source-over'; fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.drawImage(img,0,0); saveFogBase(); if(boardSettings.visionAuto) computeVisionAuto(); }; img.src=last; }
 // Multiplayer session state
 let mp = { ws:null, connected:false, isGM:false, allowEdits:false, room:'', name:'', server:'', silent:false, _retries:0, peerId: (Math.random().toString(36).slice(2,10)), transport:'ws', fb:null };
 
@@ -650,11 +1107,7 @@ function wireHelp(){
   window.addEventListener('keydown', (e)=> { if(e.key==='Escape' && !document.getElementById('mapHelpModal')?.classList.contains('hidden')) document.getElementById('mapHelpModal')?.classList.add('hidden'); });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  wireHelp();
-  wireAdvancedMap();
-  wireCharacterPage();
-});
+document.addEventListener('DOMContentLoaded', () => { wireHelp(); wireAdvancedMap(); wireCharacterPage(); });
 
 function wireAdvancedMap(){
   const stage = document.getElementById('mapStage'); if(!stage) return;
@@ -700,11 +1153,8 @@ function wireAdvancedMap(){
     });
   }
   document.getElementById('exportImageBtn')?.addEventListener('click', exportPngSnapshot);
-  // Simple Mode
-  const sT=document.getElementById('simpleModeToggle'); if(sT){ const val=loadPref('simpleMode','true'); sT.checked=val==='true'; document.body.classList.toggle('simple-mode', sT.checked); sT.addEventListener('change', ()=> { savePref('simpleMode', sT.checked?'true':'false'); document.body.classList.toggle('simple-mode', sT.checked); }); }
-  // Perf/Lock/Cursors toggles
-  const pT=document.getElementById('perfModeToggle'); if(pT){ const v=loadPref('perfMode','false'); pT.checked = v==='true'; pT.addEventListener('change', ()=> savePref('perfMode', pT.checked?'true':'false')); }
-  const lT=document.getElementById('lockBoardToggle'); if(lT){ const v=loadPref('lockBoard','false'); lT.checked=v==='true'; document.body.classList.toggle('locked', lT.checked); lT.addEventListener('change', ()=> { savePref('lockBoard', lT.checked?'true':'false'); document.body.classList.toggle('locked', lT.checked); }); }
+  document.getElementById('visionRefreshBtn')?.addEventListener('click', ()=> computeVisionAuto());
+  // Cursors toggle only (others removed for simplicity)
   const cT=document.getElementById('cursorsToggle'); if(cT){ const v=loadPref('cursors','true'); cT.checked=v!=='false'; cT.addEventListener('change', ()=> { savePref('cursors', cT.checked?'true':'false'); document.getElementById('cursorLayer').style.display = cT.checked? '' : 'none'; }); document.getElementById('cursorLayer').style.display = cT.checked? '' : 'none'; }
   // Multiplayer controls
   document.getElementById('hostGameBtn')?.addEventListener('click', openMpModalHost);
@@ -930,9 +1380,68 @@ function highlightActiveToken(){ const cur=initiative.order[initiative.current];
 function persistInitiative(){ try{ localStorage.setItem('mapInitiative', JSON.stringify(initiative)); }catch{} }
 function loadInitiative(){ try{ const raw=localStorage.getItem('mapInitiative'); if(raw) initiative=JSON.parse(raw); }catch{} }
 
-// ----- Vision (simplified radial reveal) -----
-let _visionTmr=null; function computeVisionAuto(){ if(!boardSettings.visionAuto) return; clearTimeout(_visionTmr); const perf = loadPref('perfMode','false')==='true'; const delay = perf? 250 : 60; _visionTmr = setTimeout(()=>{ const canvas = fogCtx?.canvas; if(!canvas || !fogCtx) return; pushFogHistory(); coverFog(); fogCtx.globalCompositeOperation='destination-out'; [...document.querySelectorAll('.token')].forEach(t=> revealVisionForToken(t)); saveFog(); }, delay); }
-function revealVisionForToken(t){ const r=parseInt(t.dataset.vision||'180'); const x=parseFloat(t.style.left); const y=parseFloat(t.style.top); const poly = computeLOS(x,y,r); drawPoly(fogCtx, poly, true); }
+// ----- Vision System (Rebuilt from scratch) -----
+let visionDebounce = null;
+
+function computeVisionAuto() {
+  if (!boardSettings.visionAuto || !fogCtx) return;
+  
+  const base = localStorage.getItem('fogBaseData');
+  if (base) {
+    const img = new Image();
+    img.onload = () => {
+      fogCtx.globalCompositeOperation = 'source-over';
+      fogCtx.clearRect(0, 0, fogCtx.canvas.width, fogCtx.canvas.height);
+      fogCtx.drawImage(img, 0, 0);
+      applyTokenVision();
+    };
+    img.src = base;
+  } else {
+    coverFog();
+    applyTokenVision();
+  }
+}
+
+function applyTokenVision() {
+  const tokens = document.querySelectorAll('.token');
+  if (!tokens.length) return;
+  
+  fogCtx.globalCompositeOperation = 'destination-out';
+  
+  tokens.forEach(token => {
+    // Token position is already centered due to CSS transform
+    const x = parseFloat(token.style.left);
+    const y = parseFloat(token.style.top);
+    const radius = parseInt(token.dataset.vision || '180');
+    const direction = parseFloat(token.dataset.direction || '0'); // Radians
+    const fovAngle = Math.PI / 3; // 60 degrees
+    
+    // Create triangular vision cone
+    const startAngle = direction - fovAngle / 2;
+    const endAngle = direction + fovAngle / 2;
+    
+    fogCtx.beginPath();
+    fogCtx.moveTo(x, y); // Start at token center
+    
+    // Draw the vision cone arc
+    for (let i = 0; i <= 20; i++) {
+      const angle = startAngle + (endAngle - startAngle) * (i / 20);
+      const px = x + Math.cos(angle) * radius;
+      const py = y + Math.sin(angle) * radius;
+      fogCtx.lineTo(px, py);
+    }
+    
+    fogCtx.closePath();
+    fogCtx.fill();
+  });
+  
+  fogCtx.globalCompositeOperation = 'source-over';
+}
+
+function revealVisionForToken(token) {
+  // This function is kept for compatibility but vision is handled in applyTokenVision
+  console.log('revealVisionForToken called - redirecting to applyTokenVision');
+}
 function computeLOS(cx,cy,r){ const near = walls.filter(w=> boxDistToPoint(w, cx, cy) <= r+80); const pts=[]; const angles=[]; near.forEach(w=> { const a1=Math.atan2(w.y1-cy,w.x1-cx); const a2=Math.atan2(w.y2-cy,w.x2-cx); angles.push(a1-0.0005,a1,a1+0.0005,a2-0.0005,a2,a2+0.0005); }); for(let a=0;a<Math.PI*2;a+=Math.PI/180) angles.push(a); const uniq=[...new Set(angles.map(a=> +a.toFixed(4)))]; uniq.sort((a,b)=>a-b); uniq.forEach(theta=> { const end = castRay(cx,cy,theta,r,near); pts.push(end); }); return pts; }
 function castRay(x,y,ang,r,segments){ const dx=Math.cos(ang), dy=Math.sin(ang); let minT=1e9; let hitX=x+dx*r, hitY=y+dy*r; segments.forEach(w=> { const res = segIntersect(x,y,dx,dy, w.x1,w.y1,w.x2,w.y2); if(res && res.t<minT && res.t>=0 && res.t<=r){ minT=res.t; hitX=x+dx*res.t; hitY=y+dy*res.t; } }); return {x:hitX,y:hitY}; }
 function boxDistToPoint(w,px,py){ const minx=Math.min(w.x1,w.x2), maxx=Math.max(w.x1,w.x2); const miny=Math.min(w.y1,w.y2), maxy=Math.max(w.y1,w.y2); const nx=Math.max(minx,Math.min(px,maxx)); const ny=Math.max(miny,Math.min(py,maxy)); const dx=px-nx, dy=py-ny; return Math.hypot(dx,dy); }
@@ -958,42 +1467,7 @@ function hideContextMenu(){ document.getElementById('tokenContextMenu')?.remove(
 function duplicateToken(tok){ if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; } const layer=document.getElementById('tokenLayer'); const d=tok.cloneNode(true); d.dataset.id = uid(); d.style.left=(parseFloat(tok.style.left)+30)+'px'; d.style.top=(parseFloat(tok.style.top)+30)+'px'; layer.appendChild(d); updateTokenBadges(d); saveTokens(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)){ const payload={ id:d.dataset.id, x:parseFloat(d.style.left), y:parseFloat(d.style.top), title:d.title, type:d.dataset.type||'', hp:d.dataset.hp||'', vision:d.dataset.vision||'', bg:d.style.backgroundImage||'' }; broadcast({type:'op', op:{kind:'tokenAdd', token: payload}}); } }
 function updateTokenBadges(tok){ let stack=tok.querySelector('.badge-stack'); if(!stack){ stack=document.createElement('div'); stack.className='badge-stack'; tok.appendChild(stack); } stack.innerHTML=''; if(tok.dataset.hp){ const hp=document.createElement('div'); hp.className='hp-badge'; hp.textContent=tok.dataset.hp; stack.appendChild(hp); } }
 
-/*
-function dragToken(e) {
-  const token = e.target;
-  if(!( !mp.connected || mp.isGM || mp.allowEdits )){ toast('Editing disabled'); return; }
-  let sx = e.clientX, sy = e.clientY;
-  const selected = [...document.querySelectorAll('.token.selected')];
-  const moving = selected.length>1 && selected.includes(token) ? selected : [token];
-  const starts = moving.map(t=> ({t, x:parseFloat(t.style.left), y:parseFloat(t.style.top)}));
-  function move(ev) {
-    const dx = ev.clientX - sx; const dy = ev.clientY - sy;
-  starts.forEach(s=> { s.t.style.left = (s.x + dx) + 'px'; s.t.style.top = (s.y + dy) + 'px'; });
-  }
-  function up() {
-    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
-    // Snap to grid if enabled
-    const snap = document.getElementById('snapToggle')?.checked; const grid = +document.getElementById('gridSizeInput')?.value||50;
-    if(snap){ moving.forEach(t=> { const x=parseFloat(t.style.left), y=parseFloat(t.style.top); const sx=Math.round(x/grid)*grid; const sy=Math.round(y/grid)*grid; t.style.left=sx+'px'; t.style.top=sy+'px'; }); }
-  // Optional collide with walls: simple revert if token crosses a wall segment center area
-  if(document.getElementById('collideWallsToggle')?.checked){ const bad = moving.some(t=> tokenHitsWall(t)); if(bad){
-      // try to slide to a nearby free spot
-      moving.forEach(s=> { const alt=findSlidePosition(parseFloat(s.style.left), parseFloat(s.style.top), 32); if(alt){ s.style.left=alt.x+'px'; s.style.top=alt.y+'px'; } });
-      // if still blocked, revert
-      if(moving.some(t=> tokenHitsWall(t))){ starts.forEach(s=> { s.t.style.left=s.x+'px'; s.t.style.top=s.y+'px'; }); toast('Blocked by wall'); }
-    } }
-  saveTokens(); if(boardSettings.visionAuto) computeVisionAuto();
-  // Broadcast moves to peers
-  moving.forEach(t=> { if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'move', id:(t.dataset.id||''), x:parseFloat(t.style.left), y:parseFloat(t.style.top)}}); });
-  }
-  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
-}
-*/
-
 // Moves feature (lightweight list independent from sheet)
-let moves = JSON.parse(localStorage.getItem('movesStore')||'[]');
-let editingMove = null;
-let movesUndoStack=[]; let movesRedoStack=[]; // new undo/redo stacks
 function snapshotMoves(){ try{return JSON.stringify(moves);}catch{return '[]';} }
 function pushMovesUndo(){ movesUndoStack.push(snapshotMoves()); if(movesUndoStack.length>50) movesUndoStack.shift(); movesRedoStack.length=0; }
 function wireMoves(){
@@ -1006,6 +1480,97 @@ function wireMoves(){
   document.getElementById('importMovesBtn').addEventListener('click', ()=> document.getElementById('importMovesInput').click());
   document.getElementById('importMovesInput').addEventListener('change', importMovesExcel);
   renderMoves();
+}
+
+function exportMovesExcel() {
+  try {
+    const data = moves.map(move => ({
+      Name: move.name || '',
+      Description: move.description || '',
+      Tags: (move.tags || []).join(', '),
+      Notes: move.notes || ''
+    }));
+    
+    if (data.length === 0) {
+      toast('No moves to export');
+      return;
+    }
+    
+    // Simple CSV export
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => `"${(row[header] || '').toString().replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'moves.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    toast('Moves exported to CSV');
+  } catch (error) {
+    console.error('Export error:', error);
+    toast('Export failed');
+  }
+}
+
+function importMovesExcel(event) {
+  try {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const csv = e.target.result;
+        const lines = csv.split('\n').filter(line => line.trim());
+        if (lines.length < 2) {
+          toast('No data found in file');
+          return;
+        }
+        
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const imported = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+          const move = {};
+          headers.forEach((header, index) => {
+            if (header.toLowerCase() === 'name') move.name = values[index] || '';
+            else if (header.toLowerCase() === 'description') move.description = values[index] || '';
+            else if (header.toLowerCase() === 'tags') move.tags = values[index] ? values[index].split(',').map(t => t.trim()) : [];
+            else if (header.toLowerCase() === 'notes') move.notes = values[index] || '';
+          });
+          
+          if (move.name) {
+            move.id = uid();
+            imported.push(move);
+          }
+        }
+        
+        if (imported.length > 0) {
+          pushMovesUndo();
+          moves.push(...imported);
+          persistMoves();
+          renderMoves();
+          toast(`Imported ${imported.length} moves`);
+        } else {
+          toast('No valid moves found in file');
+        }
+      } catch (error) {
+        console.error('Import error:', error);
+        toast('Import failed - invalid file format');
+      }
+    };
+    reader.readAsText(file);
+  } catch (error) {
+    console.error('Import error:', error);
+    toast('Import failed');
+  }
 }
 function saveMoveFromForm(){
   const form = document.getElementById('moveForm');
@@ -1062,10 +1627,25 @@ function wireUpload(){ if(!els.uploadBtn || !els.fileInput) return; els.uploadBt
 function wireSample(){ if(!els.sampleBtn) return; els.sampleBtn.addEventListener('click', ()=>{ if(state.objects.length && !confirm('Replace current data with sample?')) return; state.headers=['Name','Type','HP','Notes']; state.objects=[{Name:'Goblin',Type:'Enemy',HP:'7',Notes:'Nimble'}, {Name:'Cleric',Type:'Player',HP:'22',Notes:'Heals'}, {Name:'Potion',Type:'Item',HP:'',Notes:'Restores 2d4+2'}]; state.filtered=[...state.objects]; buildTable(); buildColumnFilter(); applyFilters(); Persist.saveCache(state); toast('Sample inserted'); }); }
 function wireEditing(){ const save=document.getElementById('saveRowBtn'); const del=document.getElementById('deleteRowBtn'); if(save){ save.addEventListener('click', saveCurrentEdit); } if(del){ del.addEventListener('click', deleteCurrentEdit); } }
 let _editingRow=null; function openEditor(obj){ const modal=document.getElementById('editorModal'); const form=document.getElementById('editForm'); if(!modal||!form) return; _editingRow=obj; form.innerHTML=''; state.headers.forEach(h=>{ const wrap=document.createElement('label'); wrap.textContent=h; const inp=document.createElement('input'); inp.value=obj[h]||''; inp.dataset.field=h; wrap.appendChild(inp); form.appendChild(wrap); }); modal.classList.remove('hidden'); }
-function saveCurrentEdit(){ if(!_editingRow) return; const form=document.getElementById('editForm'); [...form.querySelectorAll('input')].forEach(inp=>{ _editingRow[inp.dataset.field]=inp.value; }); Persist.saveCache(state); applyFilters(); document.getElementById('editorModal').classList.add('hidden'); _editingRow=null; }
+function saveCurrentEdit(){ if(!_editingRow) return; const form=document.getElementById('editForm'); [...form.querySelectorAll('input')].forEach(inp=>{ _editingRow[inp.dataset.field]=inp.value; }); Persist.saveCache(state); applyFilters(); // ensure entities gallery updates if active
+  const active=document.querySelector('.nav-btn.active')?.dataset.view; if(active==='entities' || active==='compendium'){ try{ buildCompendium(); }catch{} }
+  document.getElementById('editorModal').classList.add('hidden'); _editingRow=null; }
 function deleteCurrentEdit(){ if(!_editingRow) return; state.objects=state.objects.filter(o=> o!==_editingRow); _editingRow=null; Persist.saveCache(state); applyFilters(); document.getElementById('editorModal').classList.add('hidden'); }
 function wireCompendiumSearch(){ const comp=document.getElementById('compSearch'); if(!comp) return; comp.addEventListener('input', ()=> applyFilters()); }
-function wireNewEntry(){ const btn=document.getElementById('newEntryBtn'); if(!btn) return; btn.addEventListener('click', ()=>{ if(!state.headers.length){ toast('Load data first'); return; } const row=Object.fromEntries(state.headers.map(h=>[h,''])); state.objects.push(row); state.filtered=[...state.objects]; Persist.saveCache(state); openEditor(row); }); }
+function wireNewEntry(){ const btn=document.getElementById('newEntryBtn'); if(!btn) return; btn.addEventListener('click', ()=>{
+  if(!state.headers.length){
+    const cols = prompt('Enter column names (comma separated):','Name,Type,HP,Notes');
+    if(!cols) return;
+    state.headers = cols.split(/[,;]+/).map(c=>c.trim()).filter(Boolean);
+    if(!state.headers.length){ toast('No columns'); return; }
+    buildTable(); buildColumnFilter(); applyFilters();
+  }
+  const row=Object.fromEntries(state.headers.map(h=>[h,'']));
+  state.objects.push(row); state.filtered=[...state.objects];
+  Persist.saveCache(state);
+  const active=document.querySelector('.nav-btn.active')?.dataset.view; if(active==='entities' || active==='compendium'){ try{ buildCompendium(); }catch{} }
+  openEditor(row);
+}); }
 
 // ---------------- Multiplayer helpers ----------------
 function openMpModalHost(){ const m=document.getElementById('mpModal'); if(!m) return; m.classList.remove('hidden'); preloadMpModal(); }
@@ -1195,10 +1775,6 @@ function applyBoardSettings(){
   applyBoardBackground(); applyGmMode(); computeVisionAuto();
 }
 
-// ----- Fog history (undo) -----
-function pushFogHistory(){ try{ const d=fogCtx?.canvas.toDataURL(); if(d){ fogHistory.push(d); if(fogHistory.length>20) fogHistory.shift(); } }catch{} }
-function undoFogStep(){ if(!fogHistory.length) return; const last=fogHistory.pop(); const img=new Image(); img.onload=()=> { fogCtx.clearRect(0,0,fogCtx.canvas.width,fogCtx.canvas.height); fogCtx.globalCompositeOperation='source-over'; fogCtx.drawImage(img,0,0); saveFog(); }; img.src=last; }
-
 // Pref helpers and toast
 function savePref(k,v){ try{ localStorage.setItem('pref:'+k, v);}catch{} }
 function loadPref(k,def){ try{ const v=localStorage.getItem('pref:'+k); return v==null? def : v; }catch{ return def; } }
@@ -1254,12 +1830,25 @@ function wireTokenInspector(){
 // Note: These functions restore simplified onboarding (Create / Join / Solo) and basic realtime sync.
 
 function initWelcomeLanding(){
-  const modal=document.getElementById('welcomeModal'); if(!modal) return;
+  console.log('=== INIT WELCOME LANDING ===');
+  const modal=document.getElementById('welcomeModal'); 
+  if(!modal) {
+    console.error('welcomeModal not found!');
+    return;
+  }
   const nameI=document.getElementById('wlName');
   const createBtn=document.getElementById('wlCreate');
   const joinBtn=document.getElementById('wlJoin');
   const soloBtn=document.getElementById('wlSolo');
   const inviteI=document.getElementById('wlInvite');
+  
+  console.log('Welcome buttons found:', {
+    nameI: !!nameI,
+    createBtn: !!createBtn, 
+    joinBtn: !!joinBtn,
+    soloBtn: !!soloBtn,
+    inviteI: !!inviteI
+  });
   // Advanced inline fields removed (relay/firebase saved via multiplayer modal if needed)
   // Load prefs
   const prefs=loadMpPrefs();
@@ -1314,7 +1903,20 @@ function initWelcomeLanding(){
   });
 
   soloBtn?.addEventListener('click', ()=>{
-    const name=(nameI?.value||'').trim()||'GM'; mp.name=name; mp.isGM=true; mp.room=''; mp.connected=false; mp.transport='ws'; mp.server=''; saveMpPrefs(); setMpStatus('Solo'); close(); document.querySelector(".nav-btn[data-view='map']")?.click(); renderSessionBanner(); });
+    console.log('SOLO BUTTON CLICKED!');
+    const name=(nameI?.value||'').trim()||'GM'; 
+    mp.name=name; 
+    mp.isGM=true; 
+    mp.room=''; 
+    mp.connected=false; 
+    mp.transport='ws'; 
+    mp.server=''; 
+    saveMpPrefs(); 
+    setMpStatus('Solo'); 
+    close(); 
+    document.querySelector(".nav-btn[data-view='map']")?.click(); 
+    renderSessionBanner(); 
+  });
 
   // Removed relaySave/fbSave buttons in simplified UI
 }
