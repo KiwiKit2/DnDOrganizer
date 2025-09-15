@@ -2545,9 +2545,13 @@ function removeImagePreview() {
 }
 
 // Character Image Cropping Functions
+// Global cropping variables
 let currentCropData = null;
 let isDragging = false;
 let currentHandle = null;
+let lastMousePos = { x: 0, y: 0 };
+let dragStartPos = { x: 0, y: 0 };
+let initialCropData = null;
 
 function initCharacterImageCropping() {
   const charImgWrap = document.getElementById('charImgWrap');
@@ -2658,50 +2662,288 @@ function handleCharacterImageUpload(event) {
 }
 
 function openCropModal(imageData) {
-  console.log('Opening crop modal with image data:', imageData ? 'Data present' : 'No data');
+  console.log('Opening crop modal with smooth cropping system');
   
   const modal = document.getElementById('imageCropperModal');
   const cropImage = document.getElementById('cropImage');
   const cropOverlay = document.getElementById('cropOverlay');
   
   if (!modal || !cropImage || !cropOverlay) {
-    console.error('Missing crop modal elements:', { modal: !!modal, cropImage: !!cropImage, cropOverlay: !!cropOverlay });
+    console.error('Missing crop modal elements');
     return;
   }
   
   cropImage.src = imageData;
   modal.classList.remove('hidden');
   
-  // Add global mouse event listeners
-  document.addEventListener('mousemove', onDrag);
-  document.addEventListener('mouseup', endDrag);
+  // Setup smooth dragging system
+  setupSmoothCropping();
   
-  // Initialize crop area (center square)
+  // Initialize crop area with smooth animation
   setTimeout(() => {
-    const rect = cropImage.getBoundingClientRect();
-    console.log('Image rect:', rect);
+    const container = cropImage.parentElement;
+    const imgRect = cropImage.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
     
-    const size = Math.min(rect.width, rect.height) * 0.6;
-    const x = (rect.width - size) / 2;
-    const y = (rect.height - size) / 2;
+    // Calculate initial crop size and position
+    const size = Math.min(imgRect.width, imgRect.height) * 0.7;
+    const x = (imgRect.width - size) / 2;
+    const y = (imgRect.height - size) / 2;
     
-    currentCropData = { x, y, width: size, height: size, imageData };
-    console.log('Initial crop data:', currentCropData);
+    currentCropData = { 
+      x, y, 
+      width: size, 
+      height: size, 
+      imageData,
+      imageRect: {
+        width: imgRect.width,
+        height: imgRect.height,
+        left: imgRect.left - containerRect.left,
+        top: imgRect.top - containerRect.top
+      }
+    };
     
     updateCropOverlay();
     updateCropPreview();
-  }, 200);
+  }, 150);
+}
+
+function setupSmoothCropping() {
+  const overlay = document.getElementById('cropOverlay');
+  const handles = overlay.querySelectorAll('.crop-handle');
+  
+  // Setup overlay dragging
+  overlay.addEventListener('mousedown', startDragOverlay);
+  
+  // Setup handle dragging
+  handles.forEach(handle => {
+    handle.addEventListener('mousedown', (e) => startDragHandle(e, handle));
+  });
+  
+  // Global mouse events for smooth dragging
+  document.addEventListener('mousemove', onSmoothDrag);
+  document.addEventListener('mouseup', endSmoothDrag);
+  
+  // Prevent text selection during drag
+  document.addEventListener('selectstart', preventSelection);
+}
+
+function startDragOverlay(e) {
+  if (e.target.classList.contains('crop-handle')) return;
+  
+  e.preventDefault();
+  isDragging = true;
+  currentHandle = null;
+  
+  const overlay = document.getElementById('cropOverlay');
+  overlay.classList.add('dragging');
+  
+  const overlayRect = overlay.getBoundingClientRect();
+  dragStartPos = {
+    x: e.clientX - overlayRect.left,
+    y: e.clientY - overlayRect.top
+  };
+  
+  lastMousePos = { x: e.clientX, y: e.clientY };
+}
+
+function startDragHandle(e, handle) {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  isDragging = true;
+  currentHandle = handle.classList[1]; // Get direction class
+  
+  handle.classList.add('dragging');
+  
+  initialCropData = { ...currentCropData };
+  lastMousePos = { x: e.clientX, y: e.clientY };
+  dragStartPos = { x: e.clientX, y: e.clientY };
+}
+
+function onSmoothDrag(e) {
+  if (!isDragging || !currentCropData) return;
+  
+  e.preventDefault();
+  
+  const deltaX = e.clientX - lastMousePos.x;
+  const deltaY = e.clientY - lastMousePos.y;
+  
+  if (currentHandle) {
+    // Handle resizing with smooth constraints
+    resizeCropArea(deltaX, deltaY);
+  } else {
+    // Handle moving with smooth boundaries
+    moveCropArea(deltaX, deltaY);
+  }
+  
+  lastMousePos = { x: e.clientX, y: e.clientY };
+  updateCropOverlay();
+  updateCropPreview();
+}
+
+function resizeCropArea(deltaX, deltaY) {
+  const minSize = 50;
+  const maxSize = Math.min(currentCropData.imageRect.width, currentCropData.imageRect.height);
+  
+  let { x, y, width, height } = currentCropData;
+  
+  switch (currentHandle) {
+    case 'nw':
+      const newWidth1 = width - deltaX;
+      const newHeight1 = height - deltaY;
+      if (newWidth1 >= minSize && x + deltaX >= 0) {
+        width = newWidth1;
+        x += deltaX;
+      }
+      if (newHeight1 >= minSize && y + deltaY >= 0) {
+        height = newHeight1;
+        y += deltaY;
+      }
+      // Keep square
+      const size1 = Math.min(width, height);
+      width = height = size1;
+      break;
+      
+    case 'ne':
+      const newWidth2 = width + deltaX;
+      const newHeight2 = height - deltaY;
+      if (newWidth2 >= minSize && x + newWidth2 <= currentCropData.imageRect.width) {
+        width = newWidth2;
+      }
+      if (newHeight2 >= minSize && y + deltaY >= 0) {
+        height = newHeight2;
+        y += deltaY;
+      }
+      const size2 = Math.min(width, height);
+      width = height = size2;
+      break;
+      
+    case 'sw':
+      const newWidth3 = width - deltaX;
+      const newHeight3 = height + deltaY;
+      if (newWidth3 >= minSize && x + deltaX >= 0) {
+        width = newWidth3;
+        x += deltaX;
+      }
+      if (newHeight3 >= minSize && y + newHeight3 <= currentCropData.imageRect.height) {
+        height = newHeight3;
+      }
+      const size3 = Math.min(width, height);
+      width = height = size3;
+      break;
+      
+    case 'se':
+      const newWidth4 = width + deltaX;
+      const newHeight4 = height + deltaY;
+      if (newWidth4 >= minSize && x + newWidth4 <= currentCropData.imageRect.width) {
+        width = newWidth4;
+      }
+      if (newHeight4 >= minSize && y + newHeight4 <= currentCropData.imageRect.height) {
+        height = newHeight4;
+      }
+      const size4 = Math.min(width, height);
+      width = height = size4;
+      break;
+      
+    case 'n':
+      const newHeight5 = height - deltaY;
+      if (newHeight5 >= minSize && y + deltaY >= 0) {
+        height = newHeight5;
+        y += deltaY;
+      }
+      break;
+      
+    case 's':
+      const newHeight6 = height + deltaY;
+      if (newHeight6 >= minSize && y + newHeight6 <= currentCropData.imageRect.height) {
+        height = newHeight6;
+      }
+      break;
+      
+    case 'w':
+      const newWidth7 = width - deltaX;
+      if (newWidth7 >= minSize && x + deltaX >= 0) {
+        width = newWidth7;
+        x += deltaX;
+      }
+      break;
+      
+    case 'e':
+      const newWidth8 = width + deltaX;
+      if (newWidth8 >= minSize && x + newWidth8 <= currentCropData.imageRect.width) {
+        width = newWidth8;
+      }
+      break;
+  }
+  
+  // Ensure crop stays within image bounds
+  x = Math.max(0, Math.min(x, currentCropData.imageRect.width - width));
+  y = Math.max(0, Math.min(y, currentCropData.imageRect.height - height));
+  
+  currentCropData = { ...currentCropData, x, y, width, height };
+}
+
+function moveCropArea(deltaX, deltaY) {
+  let newX = currentCropData.x + deltaX;
+  let newY = currentCropData.y + deltaY;
+  
+  // Smooth boundary constraints
+  newX = Math.max(0, Math.min(newX, currentCropData.imageRect.width - currentCropData.width));
+  newY = Math.max(0, Math.min(newY, currentCropData.imageRect.height - currentCropData.height));
+  
+  currentCropData = { ...currentCropData, x: newX, y: newY };
+}
+
+function endSmoothDrag() {
+  if (!isDragging) return;
+  
+  isDragging = false;
+  
+  // Remove visual drag states
+  const overlay = document.getElementById('cropOverlay');
+  const handles = overlay.querySelectorAll('.crop-handle');
+  
+  overlay.classList.remove('dragging');
+  handles.forEach(handle => handle.classList.remove('dragging'));
+  
+  currentHandle = null;
+  initialCropData = null;
+}
+
+function preventSelection(e) {
+  if (isDragging) e.preventDefault();
 }
 
 function updateCropOverlay() {
   const cropOverlay = document.getElementById('cropOverlay');
-  if (cropOverlay && currentCropData) {
-    cropOverlay.style.left = currentCropData.x + 'px';
-    cropOverlay.style.top = currentCropData.y + 'px';
-    cropOverlay.style.width = currentCropData.width + 'px';
-    cropOverlay.style.height = currentCropData.height + 'px';
+  if (!cropOverlay || !currentCropData) return;
+  
+  // Smooth position updates
+  cropOverlay.style.left = currentCropData.x + 'px';
+  cropOverlay.style.top = currentCropData.y + 'px';
+  cropOverlay.style.width = currentCropData.width + 'px';
+  cropOverlay.style.height = currentCropData.height + 'px';
+}
+
+function closeCropModal() {
+  const modal = document.getElementById('imageCropperModal');
+  if (modal) {
+    modal.classList.add('hidden');
   }
-  updateCropPreview();
+  
+  // Clean up all event listeners
+  document.removeEventListener('mousemove', onSmoothDrag);
+  document.removeEventListener('mouseup', endSmoothDrag);
+  document.removeEventListener('selectstart', preventSelection);
+  
+  // Reset states
+  currentCropData = null;
+  isDragging = false;
+  currentHandle = null;
+  lastMousePos = { x: 0, y: 0 };
+  dragStartPos = { x: 0, y: 0 };
+  initialCropData = null;
 }
 
 function updateCropPreview() {
@@ -2748,97 +2990,6 @@ function updateCropPreview() {
   };
   
   img.src = currentCropData.imageData;
-}
-
-function startDrag(event) {
-  event.preventDefault();
-  isDragging = true;
-  
-  const target = event.target;
-  if (target.classList.contains('crop-handle')) {
-    currentHandle = target.classList[1]; // Get the direction class (nw, ne, etc.)
-  } else {
-    currentHandle = null;
-    const rect = event.currentTarget.getBoundingClientRect();
-    currentCropData.dragStartX = event.clientX - rect.left;
-    currentCropData.dragStartY = event.clientY - rect.top;
-  }
-}
-
-function onDrag(event) {
-  if (!isDragging || !currentCropData) return;
-  
-  const cropImage = document.getElementById('cropImage');
-  const cropContainer = document.getElementById('cropContainer');
-  
-  if (!cropImage || !cropContainer) return;
-  
-  const containerRect = cropContainer.getBoundingClientRect();
-  const imageRect = cropImage.getBoundingClientRect();
-  
-  // Calculate mouse position relative to the image
-  const mouseX = event.clientX - imageRect.left;
-  const mouseY = event.clientY - imageRect.top;
-  
-  if (currentHandle) {
-    // Handle resizing
-    let { x, y, width, height } = currentCropData;
-    const minSize = 30; // Minimum crop size
-    
-    if (currentHandle.includes('n')) {
-      const newHeight = height + (y - mouseY);
-      if (newHeight >= minSize && mouseY >= 0) {
-        height = newHeight;
-        y = mouseY;
-      }
-    }
-    if (currentHandle.includes('s')) {
-      const newHeight = mouseY - y;
-      if (newHeight >= minSize && mouseY <= imageRect.height) {
-        height = newHeight;
-      }
-    }
-    if (currentHandle.includes('w')) {
-      const newWidth = width + (x - mouseX);
-      if (newWidth >= minSize && mouseX >= 0) {
-        width = newWidth;
-        x = mouseX;
-      }
-    }
-    if (currentHandle.includes('e')) {
-      const newWidth = mouseX - x;
-      if (newWidth >= minSize && mouseX <= imageRect.width) {
-        width = newWidth;
-      }
-    }
-    
-    // Keep square aspect ratio for corner handles
-    if (currentHandle.length === 2) {
-      const size = Math.min(width, height);
-      width = height = size;
-    }
-    
-    // Ensure crop stays within image bounds
-    x = Math.max(0, Math.min(x, imageRect.width - width));
-    y = Math.max(0, Math.min(y, imageRect.height - height));
-    
-    currentCropData = { ...currentCropData, x, y, width, height };
-  } else {
-    // Handle moving
-    const newX = mouseX - currentCropData.dragStartX;
-    const newY = mouseY - currentCropData.dragStartY;
-    
-    // Keep within image bounds
-    currentCropData.x = Math.max(0, Math.min(newX, imageRect.width - currentCropData.width));
-    currentCropData.y = Math.max(0, Math.min(newY, imageRect.height - currentCropData.height));
-  }
-  
-  updateCropOverlay();
-}
-
-function endDrag() {
-  isDragging = false;
-  currentHandle = null;
 }
 
 function applyCrop() {
