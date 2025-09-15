@@ -99,7 +99,7 @@ function wireNav() {
         refreshMap();
         initMapBoard(); // Initialize board when map tab is clicked
       }
-      if (v === 'character') { buildCharStats(); renderCharMoves(); }
+      if (v === 'character') { buildCharacterSheet(); renderCharMoves(); }
     });
   });
   document.getElementById('themeSwitch').addEventListener('click', toggleTheme);
@@ -136,6 +136,7 @@ function wireEvents() {
   wireMoves();
   wireAdmin();
   wireNewEntry();
+  initCharacterImageCropping();
 }
 
 async function reload() {
@@ -437,11 +438,576 @@ function refreshMap() {
   for (let y=0; y<canvas.height; y+=gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
 }
 
+// ===== MODERN WALL SYSTEM - POLISHED & INTUITIVE =====
+let modernWallState = {
+  active: false,
+  isDrawing: false,
+  startPoint: null,
+  previewWall: null,
+  hoveredWall: null
+};
+
+function enableModernWallMode() {
+  console.log('🏗️ Modern wall mode enabled');
+  modernWallState.active = true;
+  
+  const canvas = document.getElementById('wallsCanvas');
+  const stage = document.getElementById('mapStage');
+  console.log('Canvas found:', !!canvas, 'Stage found:', !!stage);
+  
+  if (!canvas || !stage) {
+    console.error('❌ Missing canvas or stage elements!');
+    return;
+  }
+  
+  // Change cursor to crosshair for precision
+  stage.style.cursor = 'crosshair';
+  
+  // Mouse down - start wall creation
+  canvas.onmousedown = (e) => {
+    if (e.button !== 0) return; // Only left click
+    
+    const rect = canvas.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    
+    // Snap to grid for precision
+    const snapped = snapToGrid(rawX, rawY);
+    
+    if (e.shiftKey) {
+      // Shift+Click = Delete wall near cursor
+      deleteWallAt(snapped.x, snapped.y);
+      return;
+    }
+    
+    // Start new wall
+    modernWallState.isDrawing = true;
+    modernWallState.startPoint = snapped;
+    
+    console.log('🎯 Wall start:', snapped);
+    showWallPreview(snapped.x, snapped.y, snapped.x, snapped.y);
+    
+    // Prevent default to avoid canvas issues
+    e.preventDefault();
+  };
+  
+  // Mouse move - show preview and hover effects
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    const snapped = snapToGrid(rawX, rawY);
+    
+    if (modernWallState.isDrawing && modernWallState.startPoint) {
+      // Update wall preview while drawing
+      showWallPreview(
+        modernWallState.startPoint.x, 
+        modernWallState.startPoint.y, 
+        snapped.x, 
+        snapped.y
+      );
+    } else {
+      // Show hover effects on existing walls
+      highlightWallAt(snapped.x, snapped.y);
+    }
+  };
+  
+  // Mouse up - finish wall creation
+  canvas.onmouseup = (e) => {
+    if (!modernWallState.isDrawing || !modernWallState.startPoint) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    const snapped = snapToGrid(rawX, rawY);
+    
+    // Create wall if it's long enough
+    const distance = Math.sqrt(
+      Math.pow(snapped.x - modernWallState.startPoint.x, 2) + 
+      Math.pow(snapped.y - modernWallState.startPoint.y, 2)
+    );
+    
+    if (distance > 20) { // Minimum wall length
+      const newWall = {
+        id: 'wall_' + Date.now(),
+        x1: modernWallState.startPoint.x,
+        y1: modernWallState.startPoint.y,
+        x2: snapped.x,
+        y2: snapped.y,
+        thickness: 4,
+        color: '#ffffff'
+      };
+      
+      walls.push(newWall);
+      persistWalls();
+      redrawWalls();
+      computeVisionAuto(); // Update vision
+      
+      console.log('✅ Wall created:', newWall);
+      toast(`🏗️ Wall created (${distance.toFixed(0)}px)`);
+    } else {
+      toast('❌ Wall too short - drag further');
+    }
+    
+    // Reset state
+    modernWallState.isDrawing = false;
+    modernWallState.startPoint = null;
+    hideWallPreview();
+  };
+  
+  // Right click context for options
+  canvas.oncontextmenu = (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    showWallContextMenu(x, y, e.clientX, e.clientY);
+  };
+  
+  console.log('✅ Modern wall system ready!');
+}
+
+function disableModernWallMode() {
+  console.log('🏗️ Modern wall mode disabled');
+  modernWallState.active = false;
+  modernWallState.isDrawing = false;
+  modernWallState.startPoint = null;
+  
+  const canvas = document.getElementById('wallsCanvas');
+  const stage = document.getElementById('mapStage');
+  
+  if (canvas) {
+    canvas.onmousedown = null;
+    canvas.onmousemove = null;
+    canvas.onmouseup = null;
+    canvas.oncontextmenu = null;
+  }
+  
+  if (stage) {
+    stage.style.cursor = '';
+  }
+  
+  hideWallPreview();
+  clearWallHighlight();
+}
+
+function snapToGrid(x, y) {
+  const gridSize = parseInt(document.getElementById('gridSizeInput')?.value || 50);
+  const snapEnabled = document.getElementById('snapToggle')?.checked;
+  
+  if (!snapEnabled) return {x, y};
+  
+  return {
+    x: Math.round(x / gridSize) * gridSize,
+    y: Math.round(y / gridSize) * gridSize
+  };
+}
+
+function showWallPreview(x1, y1, x2, y2) {
+  const canvas = document.getElementById('wallsCanvas');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  
+  // Redraw existing walls first
+  redrawWalls();
+  
+  // Draw preview in bright color
+  ctx.strokeStyle = '#00FF00'; // Bright green
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.8;
+  
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  
+  // Draw endpoints
+  ctx.fillStyle = '#00FF00';
+  ctx.beginPath();
+  ctx.arc(x1, y1, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x2, y2, 6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+}
+
+function hideWallPreview() {
+  redrawWalls(); // Just redraw without preview
+}
+
+function highlightWallAt(x, y) {
+  const nearestWall = findWallNear(x, y, 15);
+  
+  if (nearestWall !== modernWallState.hoveredWall) {
+    modernWallState.hoveredWall = nearestWall;
+    redrawWalls();
+    
+    if (nearestWall) {
+      const canvas = document.getElementById('wallsCanvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Highlight the hovered wall
+      ctx.strokeStyle = '#FF6B6B'; // Red highlight
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = 0.7;
+      
+      ctx.beginPath();
+      ctx.moveTo(nearestWall.x1, nearestWall.y1);
+      ctx.lineTo(nearestWall.x2, nearestWall.y2);
+      ctx.stroke();
+      
+      ctx.globalAlpha = 1;
+      
+      // Show delete hint
+      document.getElementById('mapStage').style.cursor = 'pointer';
+      document.getElementById('mapStage').title = 'Shift+Click to delete this wall';
+    } else {
+      document.getElementById('mapStage').style.cursor = 'crosshair';
+      document.getElementById('mapStage').title = '';
+    }
+  }
+}
+
+function clearWallHighlight() {
+  modernWallState.hoveredWall = null;
+  document.getElementById('mapStage').style.cursor = '';
+  document.getElementById('mapStage').title = '';
+}
+
+function deleteWallAt(x, y) {
+  const wallToDelete = findWallNear(x, y, 15);
+  
+  if (wallToDelete) {
+    const index = walls.indexOf(wallToDelete);
+    if (index > -1) {
+      walls.splice(index, 1);
+      persistWalls();
+      redrawWalls();
+      computeVisionAuto();
+      
+      console.log('🗑️ Wall deleted:', wallToDelete);
+      toast('🗑️ Wall deleted');
+    }
+  } else {
+    toast('❌ No wall found to delete');
+  }
+}
+
+function findWallNear(x, y, threshold = 10) {
+  for (const wall of walls) {
+    const distance = distanceToLineSegment(x, y, wall.x1, wall.y1, wall.x2, wall.y2);
+    if (distance < threshold) {
+      return wall;
+    }
+  }
+  return null;
+}
+
+function redrawWalls() {
+  const canvas = document.getElementById('wallsCanvas');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw all walls with modern styling
+  walls.forEach(wall => {
+    ctx.strokeStyle = wall.color || '#ffffff';
+    ctx.lineWidth = wall.thickness || 4;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    
+    ctx.beginPath();
+    ctx.moveTo(wall.x1, wall.y1);
+    ctx.lineTo(wall.x2, wall.y2);
+    ctx.stroke();
+  });
+  
+  // Reset shadow
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+}
+
+function showWallContextMenu(localX, localY, globalX, globalY) {
+  // Simple context menu for wall options
+  const menu = document.createElement('div');
+  menu.style.position = 'fixed';
+  menu.style.left = globalX + 'px';
+  menu.style.top = globalY + 'px';
+  menu.style.background = '#2c3e50';
+  menu.style.color = 'white';
+  menu.style.padding = '8px';
+  menu.style.borderRadius = '4px';
+  menu.style.zIndex = '1000';
+  menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.3)';
+  menu.innerHTML = `
+    <div style="padding:4px 8px; cursor:pointer;" onclick="clearAllWalls()">🗑️ Clear All Walls</div>
+    <div style="padding:4px 8px; cursor:pointer;" onclick="this.parentNode.remove()">❌ Cancel</div>
+  `;
+  
+  document.body.appendChild(menu);
+  
+  // Auto-remove after 3 seconds
+  setTimeout(() => menu.remove(), 3000);
+}
+
+function clearAllWalls() {
+  if (confirm('🗑️ Delete all walls? This cannot be undone.')) {
+    walls.length = 0;
+    persistWalls();
+    redrawWalls();
+    computeVisionAuto();
+    toast('🗑️ All walls cleared');
+  }
+  
+  // Remove any context menus
+  document.querySelectorAll('div[style*="position: fixed"]').forEach(el => {
+    if (el.innerHTML.includes('Clear All Walls')) el.remove();
+  });
+}
+
+// Update the function calls in button system
+function enableSimpleWallMode() { enableModernWallMode(); }
+function disableSimpleWallMode() { disableModernWallMode(); }
+
+function enableSimpleRevealMode() {
+  console.log('Simple reveal mode enabled');
+  const canvas = document.getElementById('fogCanvas');
+  if (!canvas) return;
+  
+  let drawing = false;
+  
+  canvas.onmousedown = (e) => {
+    drawing = true;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    revealFogAt(x, y, 20);
+  };
+  
+  canvas.onmousemove = (e) => {
+    if (!drawing) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    revealFogAt(x, y, 20);
+  };
+  
+  canvas.onmouseup = () => { drawing = false; };
+}
+
+function disableSimpleRevealMode() {
+  console.log('Simple reveal mode disabled');
+  const canvas = document.getElementById('fogCanvas');
+  if (canvas) {
+    canvas.onmousedown = null;
+    canvas.onmousemove = null;
+    canvas.onmouseup = null;
+  }
+}
+
+function startSimpleRuler() {
+  console.log('Simple ruler started');
+  const canvas = document.getElementById('battleMap');
+  if (!canvas) return;
+  
+  let firstPoint = null;
+  
+  const clickHandler = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (!firstPoint) {
+      firstPoint = {x, y};
+      toast('Click second point to measure');
+    } else {
+      const distance = Math.sqrt((x - firstPoint.x)**2 + (y - firstPoint.y)**2);
+      const gridSize = parseInt(document.getElementById('gridSizeInput')?.value || 50);
+      const squares = (distance / gridSize).toFixed(1);
+      toast(`Distance: ${distance.toFixed(0)}px (${squares} squares)`);
+      canvas.removeEventListener('click', clickHandler);
+    }
+  };
+  
+  canvas.addEventListener('click', clickHandler);
+}
+
+function createNewToken() {
+  console.log('Creating new token');
+  const layer = document.getElementById('tokenLayer');
+  if (!layer) return;
+  
+  const map = document.getElementById('battleMap');
+  if (!map) return;
+  
+  const rect = map.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  
+  const token = document.createElement('div');
+  token.className = 'token';
+  token.style.left = centerX + 'px';
+  token.style.top = centerY + 'px';
+  token.style.width = '50px';
+  token.style.height = '50px';
+  token.style.background = '#4CAF50';
+  token.style.borderRadius = '50%';
+  token.style.position = 'absolute';
+  token.style.border = '2px solid white';
+  token.textContent = 'T';
+  token.style.color = 'white';
+  token.style.textAlign = 'center';
+  token.style.lineHeight = '46px';
+  token.style.cursor = 'move';
+  token.dataset.id = 'token_' + Date.now();
+  token.dataset.vision = '180'; // Give token vision radius
+  token.dataset.type = 'player'; // Make it a player token
+  token.title = 'Player Token';
+  
+  layer.appendChild(token);
+  saveTokens();
+  
+  // Trigger vision calculation
+  if (boardSettings.visionAuto) {
+    computeVisionAuto();
+  }
+  
+  toast('Token added');
+}
+
+function setupBasicSystems() {
+  console.log('Setting up basic systems');
+  setupFog();
+  loadTokens();
+  refreshMap(); // This draws the grid
+  drawWalls();
+  drawTemplates();
+  loadFog(); // This draws the fog
+  
+  // Enable vision system by default
+  // Initialize board settings with vision enabled
+  boardSettings.visionAuto = true;
+  const visionToggle = document.getElementById('visionAutoToggle');
+  if (visionToggle) {
+    visionToggle.checked = true;
+  }
+  
+  // Setup token interactions
+  setupTokenInteractions();
+  
+  console.log('Vision system enabled, computing vision...');
+  computeVisionAuto();
+}
+
+// ===== TOKEN INTERACTION SETUP =====
+function setupTokenInteractions() {
+  const stage = document.getElementById('mapStage');
+  if (!stage) return;
+  
+  // Add stage mouse down handler if not already set up
+  stage.addEventListener('mousedown', onStageMouseDown);
+  
+  // Setup event delegation for tokens
+  stage.addEventListener('mousedown', (e) => {
+    const token = e.target.closest('.token');
+    if (!token) return;
+    
+    console.log('Token clicked:', token);
+    e.preventDefault();
+    
+    // Select token
+    selectToken(token);
+    
+    // Start dragging
+    dragToken(e);
+  });
+  
+  console.log('Token interactions set up');
+}
+
+// ===== MISSING HELPER FUNCTIONS FOR SIMPLE BUTTONS =====
+function startWallCreation(x, y) {
+  console.log('Starting wall creation at', x, y);
+  if (!wallTempPoint) {
+    // First click - set start point
+    wallTempPoint = {x, y};
+    toast('Click second point to finish wall');
+  } else {
+    // Second click - create wall
+    const wall = {
+      x1: wallTempPoint.x,
+      y1: wallTempPoint.y,
+      x2: x,
+      y2: y
+    };
+    walls.push(wall);
+    persistWalls();
+    drawWalls();
+    wallTempPoint = null;
+    toast('Wall created');
+    computeVisionAuto();
+  }
+}
+
+function deleteWallNear(x, y) {
+  console.log('Deleting wall near', x, y);
+  const threshold = 10;
+  for (let i = walls.length - 1; i >= 0; i--) {
+    const wall = walls[i];
+    const dist = distanceToLineSegment(x, y, wall.x1, wall.y1, wall.x2, wall.y2);
+    if (dist < threshold) {
+      walls.splice(i, 1);
+      persistWalls();
+      drawWalls();
+      toast('Wall deleted');
+      computeVisionAuto();
+      return;
+    }
+  }
+  toast('No wall found near click');
+}
+
+function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+  const A = px - x1;
+  const B = py - y1;
+  const C = x2 - x1;
+  const D = y2 - y1;
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  if (lenSq === 0) return Math.sqrt(A * A + B * B);
+  const t = Math.max(0, Math.min(1, dot / lenSq));
+  const projX = x1 + t * C;
+  const projY = y1 + t * D;
+  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+}
+
+function revealFogAt(x, y, radius) {
+  if (!fogCtx) return;
+  // Use the existing revealAt function which handles the fog system properly
+  revealAt(x, y, false);
+}
+
+// Removed duplicate fog functions - using existing fog system
+
 // Board state management
 let boardModes = { wall: false, reveal: false, ruler: false };
 
 function initMapBoard(){
-  console.log('=== INITMAPBOARD CALLED ===');
+  console.log('=== SIMPLE BUTTON SETUP ===');
+  
+  // Wait for elements to exist
   const must=['battleMap','tokenLayer','fogCanvas','wallsCanvas'];
   let missing=must.filter(id=> !document.getElementById(id));
   if(missing.length){ 
@@ -450,226 +1016,119 @@ function initMapBoard(){
     return; 
   }
   
-  console.log('=== ALL ELEMENTS FOUND, PROCEEDING ===');
-  console.log('Initializing board with all required elements found');
+  // ===== SIMPLE BUTTON HANDLERS - NO COMPLEX MODES =====
   
-  // Basic grid & snap
-  const gridInput=document.getElementById('gridSizeInput'); 
-  if(gridInput){ gridInput.value=loadPref('gridSize', gridInput.value); gridInput.onchange=e=>{ savePref('gridSize', e.target.value); refreshMap(); computeVisionAuto(); }; }
-  const snapT=document.getElementById('snapToggle'); 
-  if(snapT){ const val=loadPref('snapToggle','true'); snapT.checked=val==='true'; snapT.onchange=()=> savePref('snapToggle', snapT.checked?'true':'false'); }
-  
-  // Token layer interactions
-  const layer=document.getElementById('tokenLayer'); 
-  if(layer){ 
-    layer.onmousedown = e=> { if(e.target.classList.contains('token')){ const additive=e.ctrlKey||e.shiftKey; selectToken(e.target, additive); dragToken(e); } }; 
-    // Add scroll wheel rotation for tokens when not dragging
-    layer.addEventListener('wheel', (e) => {
-      if (e.target.classList.contains('token')) {
-        e.preventDefault();
-        const token = e.target;
-        if(!( !mp.connected || mp.isGM || mp.allowEdits )){ 
-          toast('Editing disabled'); 
-          return; 
-        }
-        
-        const currentDirection = parseFloat(token.dataset.direction || '0');
-        const rotationStep = 0.1; // Smaller step for precise control when not dragging
-        const newDirection = currentDirection + (e.deltaY > 0 ? rotationStep : -rotationStep);
-        
-        // Normalize to 0-2π range
-        let normalizedDirection = newDirection;
-        while (normalizedDirection < 0) normalizedDirection += Math.PI * 2;
-        while (normalizedDirection >= Math.PI * 2) normalizedDirection -= Math.PI * 2;
-        
-        updateTokenDirection(token, normalizedDirection);
-        saveTokens();
-      }
-    }, { passive: false });
-  }
-  
-  // Core toolbar buttons with enhanced debugging
-  const addSingle=document.getElementById('addSingleTokenBtn'); 
-  if(addSingle) { 
-    addSingle.addEventListener('click', (e) => {
-      console.log('=== ADD TOKEN CLICKED ===', e);
-      addSingle.style.background = 'red'; // Visual feedback
-      setTimeout(() => addSingle.style.background = '', 200);
-      newAdHocToken(); 
-    });
-    console.log('Bound Add Token button');
-  } else {
-    console.error('addSingleTokenBtn NOT FOUND');
-  }
-  
-  const wallBtn=document.getElementById('wallModeBtn'); 
-  if(wallBtn) { 
-    wallBtn.addEventListener('click', (e) => {
-      console.log('=== WALL MODE CLICKED ===', e);
-      wallBtn.style.background = 'red'; // Visual feedback
-      setTimeout(() => wallBtn.style.background = '', 200);
-      toggleMode('wall'); 
-    });
-    console.log('Bound Walls button');
-  } else {
-    console.error('wallModeBtn NOT FOUND');
-  }
-  
-  const revealBtn=document.getElementById('fogRevealBtn'); 
-  if(revealBtn) { 
-    revealBtn.addEventListener('click', (e) => {
-      console.log('=== REVEAL MODE CLICKED ===', e);
-      revealBtn.style.background = 'red'; // Visual feedback
-      setTimeout(() => revealBtn.style.background = '', 200);
-      toggleMode('reveal'); 
-    });
-    console.log('Bound Reveal button');
-  } else {
-    console.error('fogRevealBtn NOT FOUND');
-  }
-  
-  const rulerBtn=document.getElementById('rulerBtn'); 
-  if(rulerBtn) { 
-    rulerBtn.addEventListener('click', (e) => {
-      console.log('=== RULER MODE CLICKED ===', e);
-      rulerBtn.style.background = 'red'; // Visual feedback
-      setTimeout(() => rulerBtn.style.background = '', 200);
-      toggleMode('ruler'); 
-    });
-    console.log('Bound Ruler button');
-  } else {
-    console.error('rulerBtn NOT FOUND');
-  }
-  
-  // Vision toggle (main toolbar)
-  const visionToggle=document.getElementById('visionAutoToggle'); 
-  if(visionToggle) { 
-    visionToggle.checked = boardSettings.visionAuto; 
-    visionToggle.onchange=()=> { 
-      boardSettings.visionAuto = visionToggle.checked; 
-      console.log('Vision toggle:', boardSettings.visionAuto);
-      if(boardSettings.visionAuto) computeVisionAuto(); 
-    }; 
-    console.log('Bound Vision toggle');
-  }
-  
-  // Fog controls - CRITICAL: These need to work
-  const fogFull=document.getElementById('fogFullBtn'); 
-  if(fogFull) { 
-    fogFull.addEventListener('click', (e) => {
-      console.log('=== COVER ALL CLICKED ===', e);
-      fogFull.style.background = 'red'; // Visual feedback
-      setTimeout(() => fogFull.style.background = '', 200);
-      pushFogHistory(); 
-      coverFog(); 
-    });
-    console.log('Bound Cover All button');
-  } else {
-    console.error('fogFullBtn not found!');
-  }
-  
-  const fogClear=document.getElementById('fogClearBtn'); 
-  if(fogClear) { 
-    fogClear.addEventListener('click', (e) => {
-      console.log('=== CLEAR ALL CLICKED ===', e);
-      fogClear.style.background = 'red'; // Visual feedback
-      setTimeout(() => fogClear.style.background = '', 200);
-      pushFogHistory(); 
-      clearFog(); 
-    });
-    console.log('Bound Clear All button');
-  } else {
-    console.error('fogClearBtn not found!');
-  }
-  
-  // Layer visibility toggles
-  document.getElementById('showFogToggle')?.addEventListener('change', e=> { document.getElementById('fogCanvas').style.display = e.target.checked? '' : 'none'; });
-  document.getElementById('showWallsToggle')?.addEventListener('change', e=> { document.getElementById('wallsCanvas').style.display = e.target.checked? '' : 'none'; });
-  document.getElementById('showTemplatesToggle')?.addEventListener('change', e=> { document.getElementById('overlayCanvas').style.display = e.target.checked? '' : 'none'; });
-  
-  // Advanced actions (in More panel)
-  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { if(confirm('Delete all walls?')){ walls=[]; persistWalls(); drawWalls(); toast('Walls cleared'); computeVisionAuto(); } });
-  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { if(confirm('Delete all templates?')){ templates=[]; persistTemplates(); drawTemplates(); toast('Templates cleared'); } });
-  
-  // Fog undo button
-  const fogUndoBtn = document.getElementById('fogUndoBtn');
-  if(fogUndoBtn) {
-    fogUndoBtn.addEventListener('click', () => {
-      console.log('Fog undo clicked');
-      undoFogStep();
-      toast('Fog undone');
-    });
-    console.log('Bound Fog Undo button');
-  }
-  
-  // More panel toggle
-  const moreBtn=document.getElementById('mapMoreBtn'); const morePanel=document.getElementById('mapMorePanel');
-  if(moreBtn && morePanel){ 
-    moreBtn.onclick=()=> { 
-      console.log('More panel toggle clicked');
-      morePanel.classList.toggle('hidden'); 
+  // 1. ADD TOKEN - Simple click to add token
+  const addBtn = document.getElementById('addSingleTokenBtn');
+  if (addBtn) {
+    addBtn.onclick = () => {
+      console.log('ADD TOKEN: Creating new token');
+      addBtn.style.background = '#4CAF50';
+      setTimeout(() => addBtn.style.background = '', 300);
+      createNewToken();
+      toast('Token added - drag to move');
     };
-    console.log('Bound More panel toggle');
+    console.log('✓ Add Token button ready');
   }
   
-  setupFog(); loadTokens(); refreshMap();
-  try{ ensureTokenIds && ensureTokenIds(); }catch{}
-  if(boardSettings.visionAuto) computeVisionAuto();
+  // 2. WALLS - Modern intuitive system
+  const wallBtn = document.getElementById('wallModeBtn');
+  if (wallBtn) {
+    console.log('✓ Wall button found:', wallBtn);
+    let wallActive = false;
+    wallBtn.onclick = () => {
+      console.log('🔥 WALL BUTTON CLICKED!');
+      wallActive = !wallActive;
+      wallBtn.classList.toggle('active', wallActive);
+      console.log('WALLS:', wallActive ? 'ON' : 'OFF');
+      
+      if (wallActive) {
+        wallBtn.style.background = '#FF9800';
+        wallBtn.style.color = 'white';
+        toast('🏗️ WALLS ON - Click & drag to create walls, Shift+click to delete');
+        enableModernWallMode();
+      } else {
+        wallBtn.style.background = '';
+        wallBtn.style.color = '';
+        toast('WALLS OFF');
+        disableModernWallMode();
+      }
+    };
+    console.log('✓ Modern Walls button ready');
+  } else {
+    console.error('❌ Wall button NOT FOUND - wallModeBtn missing!');
+  }
   
-  // DEBUG: Test all button availability
-  console.log('=== BUTTON AVAILABILITY TEST ===');
-  const testButtons = ['addSingleTokenBtn', 'wallModeBtn', 'fogRevealBtn', 'rulerBtn', 'fogFullBtn', 'fogClearBtn', 'mapMoreBtn'];
-  testButtons.forEach(id => {
-    const btn = document.getElementById(id);
-    console.log(`${id}: ${btn ? 'FOUND' : 'NOT FOUND'}`);
-    if (btn) {
-      console.log(`  - Has click listeners: ${btn.onclick ? 'onclick set' : 'no onclick'}`);
-      console.log(`  - Visible: ${btn.offsetWidth > 0 && btn.offsetHeight > 0}`);
-    }
-  });
+  // 3. REVEAL - Simple fog reveal
+  const revealBtn = document.getElementById('fogRevealBtn');
+  if (revealBtn) {
+    let revealActive = false;
+    revealBtn.onclick = () => {
+      revealActive = !revealActive;
+      revealBtn.classList.toggle('active', revealActive);
+      console.log('REVEAL:', revealActive ? 'ON' : 'OFF');
+      
+      if (revealActive) {
+        revealBtn.style.background = '#2196F3';
+        toast('REVEAL ON - Click and drag to clear fog');
+        enableSimpleRevealMode();
+      } else {
+        revealBtn.style.background = '';
+        toast('REVEAL OFF');
+        disableSimpleRevealMode();
+      }
+    };
+    console.log('✓ Reveal button ready');
+  }
   
-  console.log('Board initialization complete');
+  // 4. RULER - Simple distance measure
+  const rulerBtn = document.getElementById('rulerBtn');
+  if (rulerBtn) {
+    rulerBtn.onclick = () => {
+      console.log('RULER: Measuring distance');
+      rulerBtn.style.background = '#9C27B0';
+      setTimeout(() => rulerBtn.style.background = '', 300);
+      toast('Click two points to measure distance');
+      startSimpleRuler();
+    };
+    console.log('✓ Ruler button ready');
+  }
+  
+  // 5. COVER ALL - Simple fog cover
+  const coverBtn = document.getElementById('fogFullBtn');
+  if (coverBtn) {
+    coverBtn.onclick = () => {
+      console.log('COVER ALL: Adding fog');
+      coverBtn.style.background = '#607D8B';
+      setTimeout(() => coverBtn.style.background = '', 300);
+      pushFogHistory(); 
+      coverFog(); // Use existing fog system
+      toast('Map covered with fog');
+    };
+    console.log('✓ Cover All button ready');
+  }
+  
+  // 6. CLEAR ALL - Simple fog clear
+  const clearBtn = document.getElementById('fogClearBtn');
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      console.log('CLEAR ALL: Removing fog');
+      clearBtn.style.background = '#F44336';
+      setTimeout(() => clearBtn.style.background = '', 300);
+      pushFogHistory(); 
+      clearFog(); // Use existing fog system
+      toast('All fog cleared');
+    };
+    console.log('✓ Clear All button ready');
+  }
+  
+  // Setup basic systems
+  setupBasicSystems();
+  
+  console.log('=== ALL BUTTONS WORKING ===');
 }
 
-function toggleMode(mode){
-  console.log('Switching to mode:', mode);
-  
-  // Clear all modes first
-  Object.keys(boardModes).forEach(k=> boardModes[k] = false);
-  
-  // Set new mode
-  boardModes[mode] = true;
-  
-  // Update button states with visual feedback
-  const buttons = {
-    wall: document.getElementById('wallModeBtn'),
-    reveal: document.getElementById('fogRevealBtn'),
-    ruler: document.getElementById('rulerBtn')
-  };
-  
-  Object.entries(buttons).forEach(([key, btn]) => {
-    if(btn) {
-      btn.classList.toggle('active', boardModes[key]);
-      if(boardModes[key]) {
-        // Flash button to show activation
-        btn.style.background = '#4a90e2';
-        setTimeout(() => btn.style.background = '', 150);
-      }
-    }
-  });
-  
-  // Set canvas cursor and stage class
-  const stage = document.getElementById('mapStage');
-  if(stage) {
-    stage.className = `map-stage mode-${mode}`;
-    
-    // Add visual mode indicator
-    const modeText = mode.charAt(0).toUpperCase() + mode.slice(1);
-    toast(`${modeText} mode active`);
-  }
-  
-  console.log('Mode switched to:', mode, 'boardModes:', boardModes);
-}
+// OLD COMPLEX MODE SYSTEM REMOVED - NOW USING SIMPLE BUTTON HANDLERS
 
 // Board initialization will be called when map tab is activated
 
@@ -814,7 +1273,16 @@ function dragToken(e) {
 
 function tokenHitsWall(tok){ const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); const r=30; return walls.some(w=> distPointToSeg(x,y,w.x1,w.y1,w.x2,w.y2) < r); }
 function findSlidePosition(x,y,range){ const dirs=[[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]; for(let d=8; d<=range; d+=8){ for(const v of dirs){ const nx=x+v[0]*d, ny=y+v[1]*d; if(!walls.some(w=> distPointToSeg(nx,ny,w.x1,w.y1,w.x2,w.y2) < 30)) return {x:nx,y:ny}; } } return null; }
-function distPointToSeg(px,py,x1,y1,x2,y2){ const A=px-x1,B=py-y1,C=x2-x1,D=y2-y1; const dot=A*C+B+D; const len_sq=C*C+D*D; let t = len_sq? ((A*C)+(B*D))/len_sq : 0; t=Math.max(0,Math.min(1,t)); const xx=x1+t*C, yy=y1+t*D; const dx=px-xx, dy=py-yy; return Math.sqrt(dx*dx+dy*dy); }
+function distPointToSeg(px,py,x1,y1,x2,y2){ 
+  const A=px-x1, B=py-y1, C=x2-x1, D=y2-y1; 
+  const dot=A*C+B*D; 
+  const len_sq=C*C+D*D; 
+  let t = len_sq ? dot/len_sq : 0; 
+  t=Math.max(0,Math.min(1,t)); 
+  const xx=x1+t*C, yy=y1+t*D; 
+  const dx=px-xx, dy=py-yy; 
+  return Math.sqrt(dx*dx+dy*dy); 
+}
 
 function testImage(src, cb) {
   const img = new Image();
@@ -864,24 +1332,8 @@ function newAdHocToken(){
   token.title = name;
   token.dataset.id = uid();
   token.dataset.vision = '180';
-  token.dataset.direction = '0'; // 0 = facing right
+  // No direction indicator - removed triangle
   
-  // Create direction indicator using CSS triangle approach
-  const indicator = document.createElement('div');
-  indicator.className = 'direction-indicator';
-  indicator.style.position = 'absolute';
-  indicator.style.top = '-8px';
-  indicator.style.left = '50%';
-  indicator.style.transform = 'translateX(-50%) rotate(0deg)';
-  indicator.style.width = '0';
-  indicator.style.height = '0';
-  indicator.style.borderLeft = '6px solid transparent';
-  indicator.style.borderRight = '6px solid transparent';
-  indicator.style.borderBottom = '12px solid white';
-  indicator.style.pointerEvents = 'none';
-  indicator.style.zIndex = '10';
-  
-  token.appendChild(indicator);
   layer.appendChild(token);
   
   saveTokens();
@@ -944,17 +1396,13 @@ function loadTokens(){
       if(tokenData.hp) token.dataset.hp = tokenData.hp; 
       if(tokenData.vision) token.dataset.vision = tokenData.vision; 
       
-      // Set direction (default to 0 if not specified)
-      const direction = parseFloat(tokenData.direction || '0');
-      token.dataset.direction = direction.toString();
+      // Set direction (default to 0 if not specified) - but no triangle indicator
+      if (tokenData.direction) {
+        token.dataset.direction = tokenData.direction.toString();
+      }
       
-      // Create direction indicator using CSS triangle approach
-      const indicator = document.createElement('div');
-      indicator.className = 'direction-indicator';
-      const degrees = direction * 180 / Math.PI;
-      indicator.style.transform = `translateX(-50%) rotate(${degrees}deg)`;
+      // No direction indicator created - triangle removed
       
-      token.appendChild(indicator);
       layer.appendChild(token); 
       
       updateTokenBadges(token);
@@ -1130,13 +1578,32 @@ function wireAdvancedMap(){
   // Load persisted state
   loadWalls(); loadTemplates(); loadInitiative(); loadBoardSettings();
     drawWalls(); drawTemplates(); renderInitiative(); applyBoardBackground(); applyGmMode();
-  // Buttons
-  document.getElementById('wallModeBtn')?.addEventListener('click', toggleWallMode);
+  // Buttons - Note: Board buttons now handled in initMapBoard() with simple system
   document.getElementById('visionToggleBtn')?.addEventListener('click', () => { boardSettings.visionAuto = !boardSettings.visionAuto; persistBoardSettings(); computeVisionAuto(); });
-  document.getElementById('rulerBtn')?.addEventListener('click', startRulerMode);
+  // Old rulerBtn listener removed - now handled in initMapBoard()
   document.getElementById('addCircleTemplateBtn')?.addEventListener('click', ()=> addTemplate('circle'));
   document.getElementById('addConeTemplateBtn')?.addEventListener('click', ()=> addTemplate('cone'));
   document.getElementById('addLineTemplateBtn')?.addEventListener('click', ()=> addTemplate('line'));
+  
+  // Clear buttons for More panel
+  document.getElementById('clearWallsBtn')?.addEventListener('click', ()=> { 
+    if(confirm('Delete all walls?')){ 
+      walls=[]; 
+      persistWalls(); 
+      drawWalls(); 
+      toast('Walls cleared'); 
+      computeVisionAuto(); 
+    } 
+  });
+  document.getElementById('clearTemplatesBtn')?.addEventListener('click', ()=> { 
+    if(confirm('Delete all templates?')){ 
+      templates=[]; 
+      persistTemplates(); 
+      drawTemplates(); 
+      toast('Templates cleared'); 
+    } 
+  });
+  
   document.getElementById('bgImageBtn')?.addEventListener('click', () => document.getElementById('bgImageInput').click());
   document.getElementById('bgImageInput')?.addEventListener('change', handleBgUpload);
   document.getElementById('exportBoardBtn')?.addEventListener('click', exportBoardState);
@@ -1180,7 +1647,7 @@ function wireAdvancedMap(){
   document.getElementById('initClearBtn')?.addEventListener('click', ()=> { initiative={order:[],current:0}; persistInitiative(); renderInitiative(); });
   // Global listeners for multi-select
   stage.addEventListener('mousedown', onStageMouseDown);
-  window.addEventListener('keydown', e=> { if(e.key==='m' || e.key==='M') startRulerMode(); });
+  // Old keyboard shortcut for ruler removed - buttons work simply now
   // ESC handling for walls
   window.addEventListener('keydown', e=> { if(e.key==='Escape'){ if(wallTempPoint){ wallTempPoint=null; hideWallPreview(); showWallHint('Placement cancelled. Click to start again.'); } else if(wallEditIndex>-1){ clearWallSelection(); showWallHint('Edit cancelled.'); } else if(wallMode){ toggleWallMode(); toast('Wall mode off'); } } });
   // Live preview while placing walls
@@ -1255,32 +1722,284 @@ function broadcastActiveView(){ if(!mp.connected) return; const now=performance.
 setInterval(()=> broadcastActiveView(), 2000);
 
 // ---------------- Character Page ----------------
-const CHAR_KEY='charProfileV1';
-let charProfile = { name:'', desc:'', img:null, stats:{}, inv:{hands:'',equip:'',store:''}, moves:[] };
-function loadChar(){ try{ const raw=localStorage.getItem(CHAR_KEY); if(raw){ const p=JSON.parse(raw); if(p&&typeof p==='object') charProfile={...charProfile, ...p}; } }catch{} }
-function saveChar(){ try{ localStorage.setItem(CHAR_KEY, JSON.stringify(charProfile)); }catch{} }
-function wireCharacterPage(){ loadChar(); buildCharStats(); bindCharInputs(); renderCharMoves(); }
-function buildCharStats(){
-  const host=document.getElementById('charStats'); if(!host) return; host.innerHTML='';
-  // Derive stat keys: use first 15 distinct capitalized column headers or fallback list
-  const fallback=['ATF','ATM','DEF','DEM','VEL','VID','PRE','EVA','PAS','SUE','FZA','CON','INT','SAG','AGI','CRM','DST','VIT','ETK','EAC','EST','ESP'];
-  let keys = (window.state?.headers||[]).filter(h=>/^[A-Z]{2,5}$/.test(h)).slice(0,24); if(!keys.length) keys=fallback;
-  keys.forEach(k=>{ if(!(k in charProfile.stats)) charProfile.stats[k]=''; const cell=document.createElement('div'); cell.className='stat'; cell.innerHTML=`<label style='font-size:10px;letter-spacing:.5px;'>${k}</label><input data-stat='${k}' value='${escapeHtml(charProfile.stats[k]||'')}' />`; host.appendChild(cell); });
-  host.querySelectorAll('input[data-stat]').forEach(inp=>{
-    inp.addEventListener('input', ()=>{ const key=inp.dataset.stat; charProfile.stats[key]=inp.value.trim(); saveChar(); });
+const CHAR_KEY='charProfileV2';
+let charProfile = { 
+  name:'', class:'', level: 1, race:'', background:'', 
+  abilities: {str:10, dex:10, con:10, int:10, wis:10, cha:10},
+  combat: {ac:10, hp:0, maxHP:0, speed:'30 ft', profBonus:2},
+  saves: {str:false, dex:false, con:false, int:false, wis:false, cha:false},
+  skills: {},
+  features:'', backstory:'',
+  inv:{weapons:'', armor:'', other:''}, 
+  moves:[], img:null 
+};
+
+const D5E_SKILLS = [
+  {name: 'Acrobatics', ability: 'dex'}, {name: 'Animal Handling', ability: 'wis'}, {name: 'Arcana', ability: 'int'},
+  {name: 'Athletics', ability: 'str'}, {name: 'Deception', ability: 'cha'}, {name: 'History', ability: 'int'},
+  {name: 'Insight', ability: 'wis'}, {name: 'Intimidation', ability: 'cha'}, {name: 'Investigation', ability: 'int'},
+  {name: 'Medicine', ability: 'wis'}, {name: 'Nature', ability: 'int'}, {name: 'Perception', ability: 'wis'},
+  {name: 'Performance', ability: 'cha'}, {name: 'Persuasion', ability: 'cha'}, {name: 'Religion', ability: 'int'},
+  {name: 'Sleight of Hand', ability: 'dex'}, {name: 'Stealth', ability: 'dex'}, {name: 'Survival', ability: 'wis'}
+];
+
+function getAbilityModifier(score) {
+  return Math.floor((score - 10) / 2);
+}
+
+function getProficiencyBonus(level) {
+  return Math.ceil(level / 4) + 1;
+}
+
+function loadChar(){ 
+  try{ 
+    const raw=localStorage.getItem(CHAR_KEY); 
+    if(raw){ 
+      const p=JSON.parse(raw); 
+      if(p&&typeof p==='object') charProfile={...charProfile, ...p}; 
+    } 
+  }catch{} 
+}
+
+function saveChar(){ 
+  try{ 
+    localStorage.setItem(CHAR_KEY, JSON.stringify(charProfile)); 
+    toast('Character saved!');
+  }catch{} 
+}
+
+function exportCharacter() {
+  const dataStr = JSON.stringify(charProfile, null, 2);
+  const blob = new Blob([dataStr], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${charProfile.name || 'character'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Character exported!');
+}
+
+function wireCharacterPage(){ 
+  loadChar(); 
+  buildCharacterSheet(); 
+  bindCharInputs(); 
+  renderCharMoves(); 
+}
+
+function buildCharacterSheet(){
+  // Initialize skills if not present
+  if (!charProfile.skills || Object.keys(charProfile.skills).length === 0) {
+    charProfile.skills = {};
+    D5E_SKILLS.forEach(skill => {
+      charProfile.skills[skill.name] = false;
+    });
+  }
+  
+  // Update proficiency bonus based on level
+  charProfile.combat.profBonus = getProficiencyBonus(charProfile.level);
+  
+  updateAbilityModifiers();
+  updateSkillsList();
+  updateSavingThrows();
+  
+  // Update proficiency bonus display
+  const profBonusInput = document.getElementById('charProfBonus');
+  if (profBonusInput) profBonusInput.value = charProfile.combat.profBonus;
+}
+
+function updateAbilityModifiers() {
+  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  abilities.forEach(ability => {
+    const modifier = getAbilityModifier(charProfile.abilities[ability]);
+    const modEl = document.getElementById(`${ability}Mod`);
+    if (modEl) {
+      modEl.textContent = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+    }
   });
 }
+
+function updateSavingThrows() {
+  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  abilities.forEach(ability => {
+    const modifier = getAbilityModifier(charProfile.abilities[ability]);
+    const proficient = charProfile.saves[ability];
+    const saveBonus = modifier + (proficient ? charProfile.combat.profBonus : 0);
+    const saveEl = document.getElementById(`${ability}Save`);
+    if (saveEl) {
+      saveEl.textContent = saveBonus >= 0 ? `+${saveBonus}` : `${saveBonus}`;
+    }
+  });
+}
+
+function updateSkillsList() {
+  const skillsList = document.getElementById('skillsList');
+  if (!skillsList) return;
+  
+  skillsList.innerHTML = '';
+  D5E_SKILLS.forEach(skill => {
+    const abilityMod = getAbilityModifier(charProfile.abilities[skill.ability]);
+    const proficient = charProfile.skills[skill.name] || false;
+    const skillBonus = abilityMod + (proficient ? charProfile.combat.profBonus : 0);
+    
+    const label = document.createElement('label');
+    label.innerHTML = `
+      <input type="checkbox" data-skill="${skill.name}" ${proficient ? 'checked' : ''}> 
+      ${skill.name} (${skill.ability.toUpperCase()}) 
+      <span>${skillBonus >= 0 ? '+' : ''}${skillBonus}</span>
+    `;
+    
+    const checkbox = label.querySelector('input');
+    checkbox.addEventListener('change', () => {
+      charProfile.skills[skill.name] = checkbox.checked;
+      updateSkillsList();
+      saveChar();
+    });
+    
+    skillsList.appendChild(label);
+  });
+}
+
 function bindCharInputs(){
-  const n=document.getElementById('charName'); const d=document.getElementById('charDesc'); const h=document.getElementById('invHands'); const e=document.getElementById('invEquip'); const s=document.getElementById('invStore'); const imgWrap=document.getElementById('charImgWrap'); const imgInput=document.getElementById('charImgInput'); const imgEl=document.getElementById('charImg'); const imgPh=document.getElementById('charImgPh');
-  if(n){ n.value=charProfile.name||''; n.addEventListener('input', ()=>{ charProfile.name=n.value.trim(); saveChar(); }); }
-  if(d){ d.value=charProfile.desc||''; d.addEventListener('input', ()=>{ charProfile.desc=d.value; saveChar(); }); }
-  if(h){ h.value=charProfile.inv.hands||''; h.addEventListener('input', ()=>{ charProfile.inv.hands=h.value; saveChar(); }); }
-  if(e){ e.value=charProfile.inv.equip||''; e.addEventListener('input', ()=>{ charProfile.inv.equip=e.value; saveChar(); }); }
-  if(s){ s.value=charProfile.inv.store||''; s.addEventListener('input', ()=>{ charProfile.inv.store=s.value; saveChar(); }); }
-  if(imgWrap && imgInput){ imgWrap.addEventListener('click', ()=> imgInput.click()); imgInput.addEventListener('change', async ev=>{ const file=ev.target.files?.[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>{ charProfile.img=rd.result; saveChar(); applyCharImage(); }; rd.readAsDataURL(file); }); applyCharImage(); }
-  const filt=document.getElementById('charMoveFilter'); const add=document.getElementById('charMoveAdd'); const sug=document.getElementById('charMoveSuggestions');
-  if(filt){ filt.addEventListener('input', ()=> renderCharMoves()); }
-  if(add){ add.addEventListener('input', ()=> buildMoveSuggestions(add.value.trim(), sug)); add.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); quickAddMove(add.value.trim()); }}); }
+  // Basic info
+  const inputs = [
+    {id: 'charName', prop: 'name'},
+    {id: 'charClass', prop: 'class'},
+    {id: 'charRace', prop: 'race'},
+    {id: 'charBackground', prop: 'background'},
+    {id: 'charFeatures', prop: 'features'},
+    {id: 'charBackstory', prop: 'backstory'}
+  ];
+  
+  inputs.forEach(({id, prop}) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = charProfile[prop] || '';
+      el.addEventListener('input', () => {
+        charProfile[prop] = el.value;
+        saveChar();
+      });
+    }
+  });
+  
+  // Level
+  const levelEl = document.getElementById('charLevel');
+  if (levelEl) {
+    levelEl.value = charProfile.level;
+    levelEl.addEventListener('input', () => {
+      charProfile.level = parseInt(levelEl.value) || 1;
+      charProfile.combat.profBonus = getProficiencyBonus(charProfile.level);
+      buildCharacterSheet();
+      saveChar();
+    });
+  }
+  
+  // Abilities
+  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  abilities.forEach(ability => {
+    const el = document.getElementById(`char${ability.charAt(0).toUpperCase() + ability.slice(1)}`);
+    if (el) {
+      el.value = charProfile.abilities[ability];
+      el.addEventListener('input', () => {
+        charProfile.abilities[ability] = parseInt(el.value) || 10;
+        updateAbilityModifiers();
+        updateSavingThrows();
+        updateSkillsList();
+        saveChar();
+      });
+    }
+  });
+  
+  // Combat stats
+  const combatInputs = [
+    {id: 'charAC', prop: 'ac'},
+    {id: 'charHP', prop: 'hp'},
+    {id: 'charMaxHP', prop: 'maxHP'},
+    {id: 'charSpeed', prop: 'speed'}
+  ];
+  
+  combatInputs.forEach(({id, prop}) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = charProfile.combat[prop];
+      el.addEventListener('input', () => {
+        charProfile.combat[prop] = ['ac', 'hp', 'maxHP'].includes(prop) ? 
+          parseInt(el.value) || 0 : el.value;
+        saveChar();
+      });
+    }
+  });
+  
+  // Saving throws
+  abilities.forEach(ability => {
+    const el = document.getElementById(`${ability}SaveProf`);
+    if (el) {
+      el.checked = charProfile.saves[ability];
+      el.addEventListener('change', () => {
+        charProfile.saves[ability] = el.checked;
+        updateSavingThrows();
+        saveChar();
+      });
+    }
+  });
+  
+  // Inventory
+  const invInputs = [
+    {id: 'invWeapons', prop: 'weapons'},
+    {id: 'invArmor', prop: 'armor'},
+    {id: 'invOther', prop: 'other'}
+  ];
+  
+  invInputs.forEach(({id, prop}) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = charProfile.inv[prop] || '';
+      el.addEventListener('input', () => {
+        charProfile.inv[prop] = el.value;
+        saveChar();
+      });
+    }
+  });
+  
+  // Image handling
+  const imgWrap = document.getElementById('charImgWrap');
+  const imgInput = document.getElementById('charImgInput');
+  if (imgWrap && imgInput) {
+    imgWrap.addEventListener('click', () => imgInput.click());
+    imgInput.addEventListener('change', async ev => {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        charProfile.img = rd.result;
+        saveChar();
+        applyCharImage();
+      };
+      rd.readAsDataURL(file);
+    });
+    applyCharImage();
+  }
+  
+  // Action buttons
+  const saveBtn = document.getElementById('saveCharacterBtn');
+  const exportBtn = document.getElementById('exportCharacterBtn');
+  if (saveBtn) saveBtn.addEventListener('click', saveChar);
+  if (exportBtn) exportBtn.addEventListener('click', exportCharacter);
+  
+  // Move/spell functionality
+  const filt = document.getElementById('charMoveFilter');
+  const add = document.getElementById('charMoveAdd');
+  const sug = document.getElementById('charMoveSuggestions');
+  if (filt) filt.addEventListener('input', () => renderCharMoves());
+  if (add) {
+    add.addEventListener('input', () => buildMoveSuggestions(add.value.trim(), sug));
+    add.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        quickAddMove(add.value.trim());
+      }
+    });
+  }
 }
 function applyCharImage(){ const imgEl=document.getElementById('charImg'); const ph=document.getElementById('charImgPh'); if(!imgEl||!ph) return; if(charProfile.img){ imgEl.src=charProfile.img; imgEl.classList.remove('hidden'); ph.classList.add('hidden'); } else { imgEl.classList.add('hidden'); ph.classList.remove('hidden'); } }
 function buildMoveSuggestions(term, container){ if(!container) return; if(!term){ container.classList.add('hidden'); container.innerHTML=''; return; } term=term.toLowerCase(); const matches=(moves||[]).filter(m=> m.name.toLowerCase().includes(term) && !charProfile.moves.includes(m.name)).slice(0,10); if(!matches.length){ container.classList.add('hidden'); container.innerHTML=''; return; } container.innerHTML=''; matches.forEach(m=>{ const b=document.createElement('button'); b.textContent=m.name; b.addEventListener('click', ()=>{ quickAddMove(m.name); container.classList.add('hidden'); document.getElementById('charMoveAdd').value=''; }); container.appendChild(b); }); container.classList.remove('hidden'); }
@@ -1290,15 +2009,15 @@ function renderCharMoves(){ const list=document.getElementById('charMovesList');
 
 // ----- Walls -----
 let wallMode = false, wallTempPoint=null;
+let revealMode = false, rulerMode = false;
 let wallOverlayEl=null, wallPreviewEl=null, wallEditIndex=-1, wallDragHandle=null, wallEditing=false;
 function ensureWallOverlay(){
   const stage=document.getElementById('mapStage'); if(!stage) return;
   if(!wallOverlayEl){ wallOverlayEl=document.createElement('div'); wallOverlayEl.id='wallOverlay'; wallOverlayEl.className='wall-overlay hidden'; stage.appendChild(wallOverlayEl); }
   if(!wallPreviewEl){ wallPreviewEl=document.createElement('div'); wallPreviewEl.id='wallPreview'; wallPreviewEl.className='wall-preview hidden'; stage.appendChild(wallPreviewEl); }
 }
-function toggleWallMode(){ wallMode = !wallMode; const b=document.getElementById('wallModeBtn'); if(b) b.classList.toggle('active', wallMode); ensureWallOverlay(); if(wallOverlayEl) wallOverlayEl.classList.toggle('hidden', !wallMode); if(!wallMode){ wallTempPoint=null; hideWallPreview(); clearWallSelection(); } else { showWallHint('Click to start a wall. Shift: snap 45°. Alt+Click existing wall: delete. Click wall segment: edit. Esc: cancel.'); } }
+// OLD toggleWallMode function removed - now using simple button handlers
 function showWallHint(msg){ if(!wallOverlayEl) return; let hint=wallOverlayEl.querySelector('.wall-hint'); if(!hint){ hint=document.createElement('div'); hint.className='wall-hint'; wallOverlayEl.appendChild(hint);} hint.textContent=msg; }
-function showWallPreview(x1,y1,x2,y2){ ensureWallOverlay(); if(!wallPreviewEl) return; wallPreviewEl.classList.remove('hidden'); const dx=x2-x1, dy=y2-y1; const len=Math.sqrt(dx*dx+dy*dy); wallPreviewEl.style.left=Math.min(x1,x2)+'px'; wallPreviewEl.style.top=Math.min(y1,y2)+'px'; wallPreviewEl.style.width=Math.abs(dx)+'px'; wallPreviewEl.style.height=Math.abs(dy)+'px'; wallPreviewEl.dataset.x1=x1; wallPreviewEl.dataset.y1=y1; wallPreviewEl.dataset.x2=x2; wallPreviewEl.dataset.y2=y2; }
 function hideWallPreview(){ if(wallPreviewEl) wallPreviewEl.classList.add('hidden'); }
 function snapPoint(x,y){ const grid=+document.getElementById('gridSizeInput')?.value||50; const snap=document.getElementById('snapToggle')?.checked; return snap? {x:Math.round(x/grid)*grid, y:Math.round(y/grid)*grid} : {x,y}; }
 function angleSnap(x1,y1,x2,y2){ // Snap to 45 deg if Shift
@@ -1331,7 +2050,21 @@ function onStageMouseDown(e){
     const nearest = findNearestWall(x,y,8);
     if(nearest>-1 && !wallTempPoint && !e.altKey){ selectWall(nearest); e.preventDefault(); return; }
     // Alt+click to delete nearest wall
-    if(e.altKey){ const idx = nearest; if(idx>-1){ walls.splice(idx,1); persistWalls(); drawWalls(); if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); toast('Wall removed'); clearWallSelection(); } return; }
+    if(e.altKey){ 
+      const idx = nearest; 
+      if(idx>-1){ 
+        walls.splice(idx,1); 
+        persistWalls(); 
+        drawWalls(); 
+        computeVisionAuto(); // Update vision after wall deletion
+        if(!mp.silent && mp.connected && (mp.isGM || mp.allowEdits)) broadcast({type:'op', op:{kind:'walls', walls}}); 
+        toast('Wall deleted'); 
+        clearWallSelection(); 
+      } else {
+        toast('No wall found to delete');
+      }
+      return; 
+    }
     if(!wallTempPoint){ wallTempPoint={x,y}; hideWallPreview(); showWallHint('First point set. Click to finish. Esc cancels.'); }
     else {
       let x2=x, y2=y; if(e.shiftKey){ const sn=angleSnap(wallTempPoint.x,wallTempPoint.y,x,y); x2=sn.x2; y2=sn.y2; }
@@ -1345,7 +2078,10 @@ function onStageMouseDown(e){
 function startMultiDrag(){ const stage=document.getElementById('mapStage'); function mv(ev){ const r=stage.getBoundingClientRect(); multiSelect.x2=ev.clientX-r.left; multiSelect.y2=ev.clientY-r.top; drawMultiSelect(); } function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); finalizeMultiSelect(); } document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); }
 function drawMultiSelect(){ let box=document.getElementById('multiSelectRect'); if(!box){ box=document.createElement('div'); box.id='multiSelectRect'; box.className='multi-select-rect'; document.getElementById('mapStage').appendChild(box);} const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1); Object.assign(box.style,{left:l+'px',top:t+'px',width:w+'px',height:h+'px'}); }
 function finalizeMultiSelect(){ const box=document.getElementById('multiSelectRect'); if(box) box.remove(); if(!multiSelect) return; const layer=document.getElementById('tokenLayer'); const {x1,y1,x2,y2}=multiSelect; const l=Math.min(x1,x2),t=Math.min(y1,y2),r=Math.max(x1,x2),b=Math.max(y1,y2); [...layer.querySelectorAll('.token')].forEach(tok=> { const x=parseFloat(tok.style.left), y=parseFloat(tok.style.top); if(x>=l && x<=r && y>=t && y<=b) tok.classList.add('selected'); }); multiSelect=null; }
-function drawWalls(){ const c=document.getElementById('wallsCanvas'); if(!c) return; const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=3; walls.forEach(w=> { ctx.beginPath(); ctx.moveTo(w.x1,w.y1); ctx.lineTo(w.x2,w.y2); ctx.stroke(); }); if(wallTempPoint){ ctx.fillStyle='rgb(79,141,255)'; ctx.beginPath(); ctx.arc(wallTempPoint.x,wallTempPoint.y,4,0,Math.PI*2); ctx.fill(); } }
+// Updated drawWalls to use modern system
+function drawWalls() { 
+  redrawWalls(); // Use the new modern wall rendering
+}
 function persistWalls(){ try{ localStorage.setItem('mapWalls', JSON.stringify(walls)); }catch{} }
 function loadWalls(){ try{ const raw=localStorage.getItem('mapWalls'); if(raw) walls=JSON.parse(raw); }catch{} }
 
@@ -1416,23 +2152,92 @@ function applyTokenVision() {
     const direction = parseFloat(token.dataset.direction || '0'); // Radians
     const fovAngle = Math.PI / 3; // 60 degrees
     
-    // Create triangular vision cone
-    const startAngle = direction - fovAngle / 2;
-    const endAngle = direction + fovAngle / 2;
-    
-    fogCtx.beginPath();
-    fogCtx.moveTo(x, y); // Start at token center
-    
-    // Draw the vision cone arc
-    for (let i = 0; i <= 20; i++) {
-      const angle = startAngle + (endAngle - startAngle) * (i / 20);
-      const px = x + Math.cos(angle) * radius;
-      const py = y + Math.sin(angle) * radius;
-      fogCtx.lineTo(px, py);
+    // If there are walls, use line-of-sight calculation
+    if (walls.length > 0) {
+      // Create vision polygon using line-of-sight
+      const losPoints = computeLOS(x, y, radius);
+      
+      // Filter points to vision cone
+      const startAngle = direction - fovAngle / 2;
+      const endAngle = direction + fovAngle / 2;
+      
+      const conePoints = [];
+      conePoints.push({x, y}); // Start at token center
+      
+      for (let point of losPoints) {
+        const dx = point.x - x;
+        const dy = point.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist <= radius) {
+          let angle = Math.atan2(dy, dx);
+          
+          // Normalize angle to 0-2π
+          while (angle < 0) angle += Math.PI * 2;
+          while (angle >= Math.PI * 2) angle -= Math.PI * 2;
+          
+          // Check if point is within FOV cone
+          let normalizedStart = startAngle;
+          let normalizedEnd = endAngle;
+          
+          // Handle angle wrapping
+          while (normalizedStart < 0) normalizedStart += Math.PI * 2;
+          while (normalizedStart >= Math.PI * 2) normalizedStart -= Math.PI * 2;
+          while (normalizedEnd < 0) normalizedEnd += Math.PI * 2;
+          while (normalizedEnd >= Math.PI * 2) normalizedEnd -= Math.PI * 2;
+          
+          let withinCone = false;
+          if (normalizedStart <= normalizedEnd) {
+            withinCone = angle >= normalizedStart && angle <= normalizedEnd;
+          } else {
+            // Cone wraps around 0°
+            withinCone = angle >= normalizedStart || angle <= normalizedEnd;
+          }
+          
+          if (withinCone) {
+            conePoints.push(point);
+          }
+        }
+      }
+      
+      // Add cone edges if no walls block them
+      const edgePoints = [];
+      for (let i = 0; i <= 10; i++) {
+        const angle = startAngle + (endAngle - startAngle) * (i / 10);
+        const px = x + Math.cos(angle) * radius;
+        const py = y + Math.sin(angle) * radius;
+        edgePoints.push({x: px, y: py});
+      }
+      
+      // Add edge points that aren't blocked
+      for (let edgePoint of edgePoints) {
+        const rayHit = castRay(x, y, Math.atan2(edgePoint.y - y, edgePoint.x - x), radius, walls);
+        conePoints.push(rayHit);
+      }
+      
+      // Draw the vision polygon
+      if (conePoints.length > 2) {
+        drawPoly(fogCtx, conePoints, true);
+      }
+    } else {
+      // No walls - use simple triangular cone
+      const startAngle = direction - fovAngle / 2;
+      const endAngle = direction + fovAngle / 2;
+      
+      fogCtx.beginPath();
+      fogCtx.moveTo(x, y); // Start at token center
+      
+      // Draw the vision cone arc
+      for (let i = 0; i <= 20; i++) {
+        const angle = startAngle + (endAngle - startAngle) * (i / 20);
+        const px = x + Math.cos(angle) * radius;
+        const py = y + Math.sin(angle) * radius;
+        fogCtx.lineTo(px, py);
+      }
+      
+      fogCtx.closePath();
+      fogCtx.fill();
     }
-    
-    fogCtx.closePath();
-    fogCtx.fill();
   });
   
   fogCtx.globalCompositeOperation = 'source-over';
@@ -1476,9 +2281,22 @@ function wireMoves(){
   addBtn.addEventListener('click', saveMoveFromForm);
   document.getElementById('resetMoveBtn').addEventListener('click', ()=> { editingMove=null; document.getElementById('moveForm').reset(); });
   document.getElementById('moveSearch').addEventListener('input', renderMoves);
+  document.getElementById('categoryFilter')?.addEventListener('change', renderMoves);
   document.getElementById('exportMovesBtn').addEventListener('click', exportMovesExcel);
   document.getElementById('importMovesBtn').addEventListener('click', ()=> document.getElementById('importMovesInput').click());
   document.getElementById('importMovesInput').addEventListener('change', importMovesExcel);
+  
+  // Image upload functionality
+  const imageFile = document.querySelector('input[name="imageFile"]');
+  if (imageFile) {
+    imageFile.addEventListener('change', handleImageUpload);
+  }
+  
+  const removeImageBtn = document.getElementById('removeImage');
+  if (removeImageBtn) {
+    removeImageBtn.addEventListener('click', removeImagePreview);
+  }
+  
   renderMoves();
 }
 
@@ -1574,32 +2392,548 @@ function importMovesExcel(event) {
 }
 function saveMoveFromForm(){
   const form = document.getElementById('moveForm');
-  const data = Object.fromEntries([...form.querySelectorAll('input,textarea')].map(i=>[i.name,i.value.trim()]));
-  if(!data.name){ alert('Name required'); return; }
+  if (!form) {
+    toast('Form not found');
+    return;
+  }
+  
+  const data = Object.fromEntries([...form.querySelectorAll('input,textarea,select')].map(i=>[i.name,i.value.trim()]));
+  if(!data.name){ 
+    toast('Move name is required'); 
+    return; 
+  }
+  
+  // Handle image data from file upload
+  if (form.dataset.imageData) {
+    data.image = form.dataset.imageData;
+  }
+  
+  // Remove the imageFile field since we store the data
+  delete data.imageFile;
+  
+  // Improve description formatting with line breaks
+  if (data.description) {
+    data.description = data.description.replace(/\n/g, '<br>');
+  }
+  
   data.tags = data.tags? data.tags.split(/[,;]+/).map(t=>t.trim()).filter(Boolean):[];
+  
+  // Ensure unique ID for new moves
+  if (!editingMove) {
+    data.id = uid();
+  }
+  
   pushMovesUndo();
-  if(editingMove){ Object.assign(editingMove,data); }
-  else moves.push(data);
+  if(editingMove){ 
+    Object.assign(editingMove,data); 
+    toast('Move updated');
+  } else { 
+    moves.push(data);
+    toast('Move added');
+  }
+  editingMove = null;
   persistMoves();
-  form.reset(); editingMove=null; renderMoves();
+  renderMoves();
+  form.reset();
+  removeImagePreview();
 }
+
 function renderMoves(){
   const body = document.querySelector('#movesTable tbody'); if(!body) return;
   const term = (document.getElementById('moveSearch')?.value||'').toLowerCase();
-  const rows = moves.filter(m=> !term || m.name.toLowerCase().includes(term) || (m.tags||[]).some(t=>t.toLowerCase().includes(term)) );
+  const categoryFilter = document.getElementById('categoryFilter')?.value || '';
+  
+  const rows = moves.filter(m=> {
+    const matchesSearch = !term || 
+      m.name.toLowerCase().includes(term) || 
+      (m.description||'').toLowerCase().includes(term) ||
+      (m.category||'').toLowerCase().includes(term) ||
+      (m.tags||[]).some(t=>t.toLowerCase().includes(term));
+    
+    const matchesCategory = !categoryFilter || (m.category === categoryFilter);
+    
+    return matchesSearch && matchesCategory;
+  });
+  
   body.innerHTML='';
   rows.forEach(m=> {
     const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.description||'')}</td><td>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</td><td><button class='mini-btn' data-act='edit'>Edit</button><button class='mini-btn danger' data-act='del'>Del</button></td>`;
-//     tr.querySelector('[data-act=edit]').addEventListener('click', ()=> { editingMove = m; fillMoveForm(m); });
-    tr.querySelector('[data-act=del]').addEventListener('click', ()=> { if(confirm('Delete move?')) { pushMovesUndo(); moves = moves.filter(x=>x!==m); persistMoves(); renderMoves(); } });
+    
+    // Category badge
+    const categoryBadge = m.category ? 
+      `<span class="category-badge category-${m.category}">${m.category}</span>` : 
+      '<span class="category-badge category-other">none</span>';
+    
+    // Damage/Range column
+    const damageRange = [m.damage, m.range].filter(Boolean).join(' • ') || '—';
+    
+    // Handle line breaks in description for better formatting
+    const formattedDesc = (m.description || '').replace(/<br>/g, '\n');
+    
+    tr.innerHTML = `
+      <td><strong>${escapeHtml(m.name)}</strong></td>
+      <td>${categoryBadge}</td>
+      <td style="white-space: pre-wrap; max-width: 300px;">${escapeHtml(formattedDesc)}</td>
+      <td><small style="color: var(--text-dim);">${escapeHtml(damageRange)}</small></td>
+      <td>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</td>
+      <td>
+        <button class='mini-btn' data-act='edit'>Edit</button>
+        <button class='mini-btn danger' data-act='del'>Delete</button>
+      </td>
+    `;
+    
+    tr.querySelector('[data-act=edit]').addEventListener('click', ()=> { editingMove = m; fillMoveForm(m); });
+    tr.querySelector('[data-act=del]').addEventListener('click', ()=> { 
+      if(confirm(`Delete "${m.name}"?`)) { 
+        pushMovesUndo(); 
+        moves = moves.filter(x=>x!==m); 
+        persistMoves(); 
+        renderMoves(); 
+        toast('Move deleted'); 
+      } 
+    });
     body.appendChild(tr);
   });
+  
   document.getElementById('movesEmpty')?.classList.toggle('hidden', rows.length>0);
+}
+
+// Image Upload and Cropping Functions
+function handleImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  if (!file.type.startsWith('image/')) {
+    toast('Please select an image file');
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const imageData = e.target.result;
+    showImagePreview(imageData);
+    
+    // Store the image data in the form
+    const form = document.getElementById('moveForm');
+    if (form) {
+      form.dataset.imageData = imageData;
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function showImagePreview(imageData) {
+  const container = document.getElementById('imagePreviewContainer');
+  const preview = document.getElementById('imagePreview');
+  
+  if (container && preview) {
+    preview.src = imageData;
+    container.classList.remove('hidden');
+  }
+}
+
+function removeImagePreview() {
+  const container = document.getElementById('imagePreviewContainer');
+  const preview = document.getElementById('imagePreview');
+  const fileInput = document.querySelector('input[name="imageFile"]');
+  const form = document.getElementById('moveForm');
+  
+  if (container) container.classList.add('hidden');
+  if (preview) preview.src = '';
+  if (fileInput) fileInput.value = '';
+  if (form) delete form.dataset.imageData;
+}
+
+// Character Image Cropping Functions
+let currentCropData = null;
+let isDragging = false;
+let currentHandle = null;
+
+function initCharacterImageCropping() {
+  const charImgWrap = document.getElementById('charImgWrap');
+  const charImgInput = document.getElementById('charImgInput');
+  const contextMenu = document.getElementById('imageContextMenu');
+  
+  if (charImgWrap && charImgInput) {
+    // Left click - upload new image if no image exists
+    charImgWrap.addEventListener('click', (e) => {
+      const charImg = document.getElementById('charImg');
+      if (!charImg || charImg.classList.contains('hidden') || !charImg.src) {
+        charImgInput.click();
+      }
+    });
+    
+    // Right click - show context menu if image exists
+    charImgWrap.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const charImg = document.getElementById('charImg');
+      
+      if (charImg && !charImg.classList.contains('hidden') && charImg.src) {
+        showContextMenu(e.clientX, e.clientY);
+      } else {
+        charImgInput.click();
+      }
+    });
+    
+    charImgInput.addEventListener('change', handleCharacterImageUpload);
+  }
+  
+  // Hide context menu when clicking elsewhere
+  document.addEventListener('click', hideContextMenu);
+  
+  // Initialize crop modal controls
+  const cropCancel = document.getElementById('cropCancel');
+  const cropApply = document.getElementById('cropApply');
+  
+  if (cropCancel) cropCancel.addEventListener('click', closeCropModal);
+  if (cropApply) cropApply.addEventListener('click', applyCrop);
+}
+
+function showContextMenu(x, y) {
+  const contextMenu = document.getElementById('imageContextMenu');
+  if (contextMenu) {
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.classList.remove('hidden');
+  }
+}
+
+function hideContextMenu() {
+  const contextMenu = document.getElementById('imageContextMenu');
+  if (contextMenu) {
+    contextMenu.classList.add('hidden');
+  }
+}
+
+function changeCharacterImage() {
+  hideContextMenu();
+  const charImgInput = document.getElementById('charImgInput');
+  if (charImgInput) {
+    charImgInput.click();
+  }
+}
+
+function resizeCharacterImage() {
+  hideContextMenu();
+  const charImg = document.getElementById('charImg');
+  if (charImg && charImg.src) {
+    openCropModal(charImg.src);
+  }
+}
+
+function deleteCharacterImage() {
+  hideContextMenu();
+  const charImg = document.getElementById('charImg');
+  const charImgPh = document.getElementById('charImgPh');
+  
+  if (charImg && charImgPh) {
+    charImg.src = '';
+    charImg.classList.add('hidden');
+    charImgPh.classList.remove('hidden');
+    
+    // Clear from character profile
+    if (typeof charProfile !== 'undefined') {
+      charProfile.img = '';
+      saveChar();
+    }
+    
+    toast('Character image removed');
+  }
+}
+
+function handleCharacterImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  if (!file.type.startsWith('image/')) {
+    toast('Please select an image file');
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    openCropModal(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function openCropModal(imageData) {
+  console.log('Opening crop modal with image data:', imageData ? 'Data present' : 'No data');
+  
+  const modal = document.getElementById('imageCropperModal');
+  const cropImage = document.getElementById('cropImage');
+  const cropOverlay = document.getElementById('cropOverlay');
+  
+  if (!modal || !cropImage || !cropOverlay) {
+    console.error('Missing crop modal elements:', { modal: !!modal, cropImage: !!cropImage, cropOverlay: !!cropOverlay });
+    return;
+  }
+  
+  cropImage.src = imageData;
+  modal.classList.remove('hidden');
+  
+  // Add global mouse event listeners
+  document.addEventListener('mousemove', onDrag);
+  document.addEventListener('mouseup', endDrag);
+  
+  // Initialize crop area (center square)
+  setTimeout(() => {
+    const rect = cropImage.getBoundingClientRect();
+    console.log('Image rect:', rect);
+    
+    const size = Math.min(rect.width, rect.height) * 0.6;
+    const x = (rect.width - size) / 2;
+    const y = (rect.height - size) / 2;
+    
+    currentCropData = { x, y, width: size, height: size, imageData };
+    console.log('Initial crop data:', currentCropData);
+    
+    updateCropOverlay();
+    updateCropPreview();
+  }, 200);
+}
+
+function updateCropOverlay() {
+  const cropOverlay = document.getElementById('cropOverlay');
+  if (cropOverlay && currentCropData) {
+    cropOverlay.style.left = currentCropData.x + 'px';
+    cropOverlay.style.top = currentCropData.y + 'px';
+    cropOverlay.style.width = currentCropData.width + 'px';
+    cropOverlay.style.height = currentCropData.height + 'px';
+  }
+  updateCropPreview();
+}
+
+function updateCropPreview() {
+  if (!currentCropData) return;
+  
+  const preview = document.getElementById('cropPreviewImg');
+  if (!preview) return;
+  
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  
+  img.onload = () => {
+    const cropImage = document.getElementById('cropImage');
+    
+    // Calculate scale factors between displayed image and actual image
+    const scaleX = img.naturalWidth / cropImage.offsetWidth;
+    const scaleY = img.naturalHeight / cropImage.offsetHeight;
+    
+    // Convert crop coordinates to actual image space
+    const actualCropX = currentCropData.x * scaleX;
+    const actualCropY = currentCropData.y * scaleY;
+    const actualCropWidth = currentCropData.width * scaleX;
+    const actualCropHeight = currentCropData.height * scaleY;
+    
+    // Set preview canvas size
+    canvas.width = 80;
+    canvas.height = 80;
+    
+    // Draw the cropped portion scaled to preview size
+    ctx.drawImage(
+      img,
+      actualCropX,
+      actualCropY,
+      actualCropWidth,
+      actualCropHeight,
+      0,
+      0,
+      80,
+      80
+    );
+    
+    preview.src = canvas.toDataURL('image/jpeg', 0.9);
+  };
+  
+  img.src = currentCropData.imageData;
+}
+
+function startDrag(event) {
+  event.preventDefault();
+  isDragging = true;
+  
+  const target = event.target;
+  if (target.classList.contains('crop-handle')) {
+    currentHandle = target.classList[1]; // Get the direction class (nw, ne, etc.)
+  } else {
+    currentHandle = null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    currentCropData.dragStartX = event.clientX - rect.left;
+    currentCropData.dragStartY = event.clientY - rect.top;
+  }
+}
+
+function onDrag(event) {
+  if (!isDragging || !currentCropData) return;
+  
+  const cropImage = document.getElementById('cropImage');
+  const cropContainer = document.getElementById('cropContainer');
+  
+  if (!cropImage || !cropContainer) return;
+  
+  const containerRect = cropContainer.getBoundingClientRect();
+  const imageRect = cropImage.getBoundingClientRect();
+  
+  // Calculate mouse position relative to the image
+  const mouseX = event.clientX - imageRect.left;
+  const mouseY = event.clientY - imageRect.top;
+  
+  if (currentHandle) {
+    // Handle resizing
+    let { x, y, width, height } = currentCropData;
+    const minSize = 30; // Minimum crop size
+    
+    if (currentHandle.includes('n')) {
+      const newHeight = height + (y - mouseY);
+      if (newHeight >= minSize && mouseY >= 0) {
+        height = newHeight;
+        y = mouseY;
+      }
+    }
+    if (currentHandle.includes('s')) {
+      const newHeight = mouseY - y;
+      if (newHeight >= minSize && mouseY <= imageRect.height) {
+        height = newHeight;
+      }
+    }
+    if (currentHandle.includes('w')) {
+      const newWidth = width + (x - mouseX);
+      if (newWidth >= minSize && mouseX >= 0) {
+        width = newWidth;
+        x = mouseX;
+      }
+    }
+    if (currentHandle.includes('e')) {
+      const newWidth = mouseX - x;
+      if (newWidth >= minSize && mouseX <= imageRect.width) {
+        width = newWidth;
+      }
+    }
+    
+    // Keep square aspect ratio for corner handles
+    if (currentHandle.length === 2) {
+      const size = Math.min(width, height);
+      width = height = size;
+    }
+    
+    // Ensure crop stays within image bounds
+    x = Math.max(0, Math.min(x, imageRect.width - width));
+    y = Math.max(0, Math.min(y, imageRect.height - height));
+    
+    currentCropData = { ...currentCropData, x, y, width, height };
+  } else {
+    // Handle moving
+    const newX = mouseX - currentCropData.dragStartX;
+    const newY = mouseY - currentCropData.dragStartY;
+    
+    // Keep within image bounds
+    currentCropData.x = Math.max(0, Math.min(newX, imageRect.width - currentCropData.width));
+    currentCropData.y = Math.max(0, Math.min(newY, imageRect.height - currentCropData.height));
+  }
+  
+  updateCropOverlay();
+}
+
+function endDrag() {
+  isDragging = false;
+  currentHandle = null;
+}
+
+function applyCrop() {
+  if (!currentCropData) return;
+  
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  
+  img.onload = () => {
+    const cropImage = document.getElementById('cropImage');
+    
+    // Calculate the actual displayed size of the image
+    const displayedWidth = cropImage.offsetWidth;
+    const displayedHeight = cropImage.offsetHeight;
+    
+    // Calculate scale factors between displayed image and actual image
+    const scaleX = img.naturalWidth / displayedWidth;
+    const scaleY = img.naturalHeight / displayedHeight;
+    
+    // Convert crop coordinates from displayed image space to actual image space
+    const actualCropX = currentCropData.x * scaleX;
+    const actualCropY = currentCropData.y * scaleY;
+    const actualCropWidth = currentCropData.width * scaleX;
+    const actualCropHeight = currentCropData.height * scaleY;
+    
+    // Set canvas size to desired output size (square for profile picture)
+    const outputSize = 200;
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    
+    // Draw the cropped portion, scaling it to fit the output size
+    ctx.drawImage(
+      img,
+      actualCropX,
+      actualCropY,
+      actualCropWidth,
+      actualCropHeight,
+      0,
+      0,
+      outputSize,
+      outputSize
+    );
+    
+    const croppedImageData = canvas.toDataURL('image/jpeg', 0.9);
+    setCharacterImage(croppedImageData);
+    closeCropModal();
+  };
+  
+  img.src = currentCropData.imageData;
+}
+
+function setCharacterImage(imageData) {
+  const charImg = document.getElementById('charImg');
+  const charImgPh = document.getElementById('charImgPh');
+  
+  if (charImg && charImgPh) {
+    charImg.src = imageData;
+    charImg.classList.remove('hidden');
+    charImgPh.classList.add('hidden');
+    
+    // Store in character profile
+    if (typeof charProfile !== 'undefined') {
+      charProfile.img = imageData;
+      saveChar();
+    }
+    
+    toast('Character image updated');
+  }
+}
+
+function closeCropModal() {
+  const modal = document.getElementById('imageCropperModal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+  
+  // Remove global mouse event listeners
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('mouseup', endDrag);
+  
+  currentCropData = null;
+  isDragging = false;
+  currentHandle = null;
 }
 function fillMoveForm(m){
   const f = document.getElementById('moveForm'); if(!f) return;
-  f.name.value = m.name||''; f.description.value = m.description||''; f.tags.value = (m.tags||[]).join(', '); f.image.value = m.image||''; 
+  f.name.value = m.name||''; 
+  f.category.value = m.category||'';
+  // Convert <br> back to newlines for editing
+  f.description.value = (m.description||'').replace(/<br>/g, '\n'); 
+  f.damage.value = m.damage||'';
+  f.range.value = m.range||'';
+  f.tags.value = (m.tags||[]).join(', '); 
+  f.image.value = m.image||''; 
 }
 function persistMoves(){ localStorage.setItem('movesStore', JSON.stringify(moves)); }
 // Global moves undo/redo (Ctrl+Z / Ctrl+Y) outside form fields
@@ -1624,7 +2958,29 @@ function updateAdminVisibility(){
 
 // ---------------- Missing Table / Upload / Editing Helpers ----------------
 function wireUpload(){ if(!els.uploadBtn || !els.fileInput) return; els.uploadBtn.addEventListener('click', ()=> els.fileInput.click()); els.fileInput.addEventListener('change', async e=>{ const file=e.target.files?.[0]; if(!file) return; try{ const name=file.name.toLowerCase(); const t0=performance.now(); if(name.endsWith('.csv')){ const text=await file.text(); const rows=parseCsv(text); const headers=rows.shift()||[]; const objects=rows.map(r=> Object.fromEntries(headers.map((h,i)=>[h,r[i]||'']))); state.headers=headers; state.objects=objects; state.filtered=[...objects]; state.numericCols=[]; } else if(/\.xlsx?$/.test(name)){ const data=new Uint8Array(await file.arrayBuffer()); const wb=XLSX.read(data,{type:'array'}); const sheetName=wb.SheetNames[0]; const sheet=wb.Sheets[sheetName]; const json=XLSX.utils.sheet_to_json(sheet,{header:1}); const headers=json.shift()||[]; const objects=json.map(r=> Object.fromEntries(headers.map((h,i)=>[h,r[i]||'']))); state.headers=headers; state.objects=objects; state.filtered=[...objects]; } else { toast('Unsupported file'); return; } buildTable(); buildColumnFilter(); applyFilters(); Persist.saveCache(state); toast('Loaded '+state.objects.length+' rows'); console.log('Upload parse ms', (performance.now()-t0)|0); }catch(err){ console.error(err); toast('Load failed'); } finally { e.target.value=''; } }); }
-function wireSample(){ if(!els.sampleBtn) return; els.sampleBtn.addEventListener('click', ()=>{ if(state.objects.length && !confirm('Replace current data with sample?')) return; state.headers=['Name','Type','HP','Notes']; state.objects=[{Name:'Goblin',Type:'Enemy',HP:'7',Notes:'Nimble'}, {Name:'Cleric',Type:'Player',HP:'22',Notes:'Heals'}, {Name:'Potion',Type:'Item',HP:'',Notes:'Restores 2d4+2'}]; state.filtered=[...state.objects]; buildTable(); buildColumnFilter(); applyFilters(); Persist.saveCache(state); toast('Sample inserted'); }); }
+function wireSample(){ 
+  if(!els.sampleBtn) return; 
+  els.sampleBtn.addEventListener('click', ()=>{
+    if(state.objects.length && !confirm('Replace current data with sample?')) return; 
+    state.headers=['Name','Type','HP','AC','Description','Image']; 
+    state.objects=[
+      {Name:'Goblin',Type:'Enemy',HP:'7',AC:'15',Description:'Small, nimble humanoid with darkvision',Image:'https://www.dndbeyond.com/avatars/thumbnails/0/351/1000/1000/636252777818652432.jpeg'}, 
+      {Name:'Cleric',Type:'Player',HP:'22',AC:'18',Description:'Divine spellcaster with healing abilities',Image:'https://www.dndbeyond.com/avatars/thumbnails/6/371/420/618/636272701936746707.png'}, 
+      {Name:'Healing Potion',Type:'Item',HP:'',AC:'',Description:'Restores 2d4+2 hit points when consumed',Image:'https://www.dndbeyond.com/avatars/thumbnails/7/269/1000/1000/636284740371444255.jpeg'},
+      {Name:'Orc Warrior',Type:'Enemy',HP:'15',AC:'13',Description:'Fierce tribal warrior with battle axe',Image:'https://www.dndbeyond.com/avatars/thumbnails/0/301/1000/1000/636252771691385727.jpeg'},
+      {Name:'Wizard',Type:'Player',HP:'18',AC:'12',Description:'Arcane spellcaster with extensive spell knowledge',Image:'https://www.dndbeyond.com/avatars/thumbnails/6/357/420/618/636271993374462837.png'},
+      {Name:'Longsword',Type:'Item',HP:'',AC:'',Description:'Versatile martial weapon, 1d8 slashing damage',Image:'https://www.dndbeyond.com/avatars/thumbnails/7/301/1000/1000/636284753267863871.jpeg'},
+      {Name:'Dragon Wyrmling',Type:'Enemy',HP:'58',AC:'17',Description:'Young dragon with breath weapon and flight',Image:'https://www.dndbeyond.com/avatars/thumbnails/0/439/1000/1000/636252784654804190.jpeg'},
+      {Name:'Rogue',Type:'Player',HP:'20',AC:'14',Description:'Stealthy combatant with sneak attack',Image:'https://www.dndbeyond.com/avatars/thumbnails/6/384/420/618/636272820319276620.png'}
+    ]; 
+    state.filtered=[...state.objects]; 
+    buildTable(); 
+    buildColumnFilter(); 
+    applyFilters(); 
+    Persist.saveCache(state); 
+    toast('Sample D&D entities inserted'); 
+  }); 
+}
 function wireEditing(){ const save=document.getElementById('saveRowBtn'); const del=document.getElementById('deleteRowBtn'); if(save){ save.addEventListener('click', saveCurrentEdit); } if(del){ del.addEventListener('click', deleteCurrentEdit); } }
 let _editingRow=null; function openEditor(obj){ const modal=document.getElementById('editorModal'); const form=document.getElementById('editForm'); if(!modal||!form) return; _editingRow=obj; form.innerHTML=''; state.headers.forEach(h=>{ const wrap=document.createElement('label'); wrap.textContent=h; const inp=document.createElement('input'); inp.value=obj[h]||''; inp.dataset.field=h; wrap.appendChild(inp); form.appendChild(wrap); }); modal.classList.remove('hidden'); }
 function saveCurrentEdit(){ if(!_editingRow) return; const form=document.getElementById('editForm'); [...form.querySelectorAll('input')].forEach(inp=>{ _editingRow[inp.dataset.field]=inp.value; }); Persist.saveCache(state); applyFilters(); // ensure entities gallery updates if active
@@ -1996,9 +3352,5 @@ document.addEventListener('DOMContentLoaded', ()=> { renderSessionBanner(); });
 function exportBoardState(){ try{ const data=exportStateObj(); const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.download='board-state.json'; a.href=URL.createObjectURL(blob); a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000); toast('Board exported'); }catch(e){ console.error(e); toast('Export failed'); } }
 async function importBoardState(e){ try{ const file=e.target.files?.[0]; if(!file) return; const txt=await file.text(); const json=JSON.parse(txt); importStateObj(json); toast('Board imported'); e.target.value=''; }catch(err){ console.error(err); toast('Import failed'); } }
 
-function startRulerMode(){ const stage=document.getElementById('mapStage'); if(!stage) return; let box=document.getElementById('rulerLine'); if(!box){ box=document.createElement('div'); box.id='rulerLine'; box.style.position='absolute'; box.style.pointerEvents='none'; box.style.border='1px solid #4f8dff'; box.style.background='rgba(79,141,255,0.15)'; box.style.fontSize='11px'; box.style.color='#fff'; box.style.padding='2px 4px'; box.style.borderRadius='4px'; stage.appendChild(box);} let origin=null; const grid=+document.getElementById('gridSizeInput')?.value||50; function fmt(distPx){ const squares = distPx / grid; const feet = squares*5; return feet.toFixed(1)+' ft'; }
-  function down(ev){ const rect=stage.getBoundingClientRect(); origin={x:ev.clientX-rect.left,y:ev.clientY-rect.top}; box.style.left=origin.x+'px'; box.style.top=origin.y+'px'; box.textContent='0 ft'; box.style.display='block'; document.addEventListener('mousemove',move); document.addEventListener('mouseup',up); ev.preventDefault(); }
-  function move(ev){ if(!origin) return; const rect=stage.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top; const dx=x-origin.x, dy=y-origin.y; const dist=Math.hypot(dx,dy); const left=Math.min(origin.x,x), top=Math.min(origin.y,y); box.style.left=left+'px'; box.style.top=top+'px'; box.style.width=Math.abs(dx)+'px'; box.style.height=Math.abs(dy)+'px'; box.textContent=fmt(dist); }
-  function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); setTimeout(()=>{ if(box) box.style.display='none'; }, 400); origin=null; }
-  stage.addEventListener('mousedown', down, { once:true }); toast('Ruler: drag to measure (M to re-run)'); }
+// Old startRulerMode function removed - now using simple ruler in initMapBoard()
 
