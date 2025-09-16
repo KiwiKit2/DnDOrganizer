@@ -817,3 +817,148 @@ textarea#sheetUrlInput:focus {outline:2px solid var(--accent);}
     grid-template-columns: 1fr;
   }
 }
+
+/* Character Mode Switcher */
+.char-mode-switcher {
+  margin-bottom: 20px;
+  padding: 0 20px;
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 4px;
+  max-width: 300px;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.mode-tab:hover {
+  color: var(--text-color);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mode-tab.active {
+  background: var(--accent-color);
+  color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.mode-section.hidden {
+  display: none;
+}
+
+/* Augurio Mode Styles */
+.augurio-stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.stat-group {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.stat-group h4 {
+  margin: 0 0 16px 0;
+  color: var(--accent-color);
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-row:last-child {
+  margin-bottom: 0;
+}
+
+.augurio-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.augurio-stat.wide {
+  grid-column: span 2;
+}
+
+.augurio-stat label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.augurio-stat input,
+.augurio-stat textarea {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-color);
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.augurio-stat input:focus,
+.augurio-stat textarea:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+}
+
+.augurio-stat textarea {
+  min-height: 60px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.augurio-stat input[type="number"] {
+  text-align: center;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .mode-tabs {
+    max-width: 100%;
+  }
+  
+  .stat-row {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 12px;
+  }
+  
+  .augurio-stat.wide {
+    grid-column: span 1;
+  }
+  
+  .stat-group {
+    padding: 16px;
+  }
+}

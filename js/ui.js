@@ -1732,7 +1732,14 @@ let charProfile = {
   skills: {},
   features:'', backstory:'',
   inv:{weapons:'', armor:'', other:''}, 
-  moves:[], img:null 
+  moves:[], img:null,
+  characterMode: 'standard',
+  augurio: {
+    atk:0, def:0, dem:0, vel:0, vid:0, pre:0, eva:0, pas:0,
+    sue:0, fza:0, con:0, int:0, sag:0, agi:0, crm:0, dst:0,
+    vit:0, etk:0, eac:0, est:0, esp:0,
+    hands:'', equip:'', store:''
+  }
 };
 
 const D5E_SKILLS = [
@@ -1757,7 +1764,15 @@ function loadChar(){
     const raw=localStorage.getItem(CHAR_KEY); 
     if(raw){ 
       const p=JSON.parse(raw); 
-      if(p&&typeof p==='object') charProfile={...charProfile, ...p}; 
+      if(p&&typeof p==='object') {
+        charProfile={...charProfile, ...p};
+        
+        // Restore character mode if saved
+        if (p.characterMode) {
+          characterMode = p.characterMode;
+          localStorage.setItem('characterMode', characterMode);
+        }
+      }
     } 
   }catch{} 
 }
@@ -2028,6 +2043,9 @@ function bindCharInputs(){
     applyCharImage();
   }
   
+  // Character Mode Switcher
+  setupCharacterModes();
+  
   // Action buttons
   const saveBtn = document.getElementById('saveCharacterBtn');
   const saveToProfileBtn = document.getElementById('saveToProfileBtn');
@@ -2059,6 +2077,9 @@ function bindCharInputs(){
   if (exportBtn) {
     exportBtn.addEventListener('click', exportCharacter);
   }
+  
+  // Setup Augurio mode auto-save listeners
+  setupAugurioAutoSave();
   
   // Move/spell functionality
   const filt = document.getElementById('charMoveFilter');
@@ -3565,6 +3586,239 @@ async function importBoardState(e){ try{ const file=e.target.files?.[0]; if(!fil
 
 // Old startRulerMode function removed - now using simple ruler in initMapBoard()
 
+// ================ CHARACTER MODE SYSTEM ================
+
+let characterMode = localStorage.getItem('characterMode') || 'standard'; // 'standard' or 'augurio'
+
+function setupCharacterModes() {
+  const standardBtn = document.getElementById('standardModeBtn');
+  const augurioBtn = document.getElementById('augurioModeBtn');
+  
+  if (standardBtn && augurioBtn) {
+    // Set initial mode
+    updateCharacterMode(characterMode, false);
+    
+    // Add click handlers
+    standardBtn.addEventListener('click', () => switchCharacterMode('standard'));
+    augurioBtn.addEventListener('click', () => switchCharacterMode('augurio'));
+  }
+}
+
+function switchCharacterMode(mode) {
+  if (mode === characterMode) return; // Already in this mode
+  
+  // Save current character data before switching
+  if (characterMode === 'standard') {
+    saveStandardModeData();
+  } else if (characterMode === 'augurio') {
+    saveAugurioModeData();
+  }
+  
+  characterMode = mode;
+  localStorage.setItem('characterMode', mode);
+  updateCharacterMode(mode, true);
+  
+  toast(`Switched to ${mode === 'standard' ? 'Standard D&D' : 'Augurio'} mode`);
+}
+
+function updateCharacterMode(mode, loadData = false) {
+  const standardBtn = document.getElementById('standardModeBtn');
+  const augurioBtn = document.getElementById('augurioModeBtn');
+  const standardSection = document.getElementById('standardAbilities');
+  const augurioSection = document.getElementById('augurioAbilities');
+  
+  // Update button states
+  if (standardBtn && augurioBtn) {
+    standardBtn.classList.toggle('active', mode === 'standard');
+    augurioBtn.classList.toggle('active', mode === 'augurio');
+  }
+  
+  // Show/hide sections
+  if (standardSection && augurioSection) {
+    if (mode === 'standard') {
+      standardSection.classList.remove('hidden');
+      augurioSection.classList.add('hidden');
+      if (loadData) loadStandardModeData();
+    } else {
+      standardSection.classList.add('hidden');
+      augurioSection.classList.remove('hidden');
+      if (loadData) loadAugurioModeData();
+    }
+  }
+}
+
+function saveStandardModeData() {
+  // Save current standard mode data to charProfile
+  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  abilities.forEach(ability => {
+    const input = document.getElementById('char' + ability.charAt(0).toUpperCase() + ability.slice(1));
+    if (input) {
+      charProfile.abilities[ability] = parseInt(input.value) || 10;
+    }
+  });
+  
+  // Save combat stats
+  const combatFields = {
+    'charAC': 'ac',
+    'charHP': 'hp',
+    'charMaxHP': 'maxHP',
+    'charSpeed': 'speed'
+  };
+  
+  Object.entries(combatFields).forEach(([inputId, profileKey]) => {
+    const input = document.getElementById(inputId);
+    if (input) {
+      charProfile.combat[profileKey] = input.type === 'number' ? (parseInt(input.value) || 0) : input.value;
+    }
+  });
+}
+
+function loadStandardModeData() {
+  // Load standard mode data from charProfile
+  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  abilities.forEach(ability => {
+    const input = document.getElementById('char' + ability.charAt(0).toUpperCase() + ability.slice(1));
+    if (input && charProfile.abilities[ability] !== undefined) {
+      input.value = charProfile.abilities[ability];
+    }
+  });
+  
+  // Load combat stats
+  const combatFields = {
+    'charAC': 'ac',
+    'charHP': 'hp',
+    'charMaxHP': 'maxHP',
+    'charSpeed': 'speed'
+  };
+  
+  Object.entries(combatFields).forEach(([inputId, profileKey]) => {
+    const input = document.getElementById(inputId);
+    if (input && charProfile.combat[profileKey] !== undefined) {
+      input.value = charProfile.combat[profileKey];
+    }
+  });
+  
+  updateAbilityModifiers();
+}
+
+function saveAugurioModeData() {
+  // Initialize augurio data if it doesn't exist
+  if (!charProfile.augurio) {
+    charProfile.augurio = {};
+  }
+  
+  // Save all Augurio stats
+  const augurioStats = [
+    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
+    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
+    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+  ];
+  
+  augurioStats.forEach(stat => {
+    const input = document.getElementById('aug' + stat);
+    if (input) {
+      charProfile.augurio[stat.toLowerCase()] = parseInt(input.value) || 0;
+    }
+  });
+  
+  // Save text fields
+  const textFields = ['Hands', 'Equip', 'Store'];
+  textFields.forEach(field => {
+    const input = document.getElementById('aug' + field);
+    if (input) {
+      charProfile.augurio[field.toLowerCase()] = input.value || '';
+    }
+  });
+}
+
+function loadAugurioModeData() {
+  // Initialize augurio data if it doesn't exist
+  if (!charProfile.augurio) {
+    charProfile.augurio = {};
+  }
+  
+  // Load all Augurio stats
+  const augurioStats = [
+    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
+    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
+    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+  ];
+  
+  augurioStats.forEach(stat => {
+    const input = document.getElementById('aug' + stat);
+    if (input) {
+      input.value = charProfile.augurio[stat.toLowerCase()] || 0;
+    }
+  });
+  
+  // Load text fields
+  const textFields = ['Hands', 'Equip', 'Store'];
+  textFields.forEach(field => {
+    const input = document.getElementById('aug' + field);
+    if (input) {
+      input.value = charProfile.augurio[field.toLowerCase()] || '';
+    }
+  });
+}
+
+function setupAugurioAutoSave() {
+  // Setup auto-save for all Augurio mode inputs
+  const augurioStats = [
+    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
+    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
+    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+  ];
+  
+  augurioStats.forEach(stat => {
+    const input = document.getElementById('aug' + stat);
+    if (input) {
+      input.addEventListener('input', () => {
+        if (characterMode === 'augurio') {
+          saveAugurioModeData();
+          saveChar();
+        }
+      });
+    }
+  });
+  
+  // Setup auto-save for text fields
+  const textFields = ['Hands', 'Equip', 'Store'];
+  textFields.forEach(field => {
+    const input = document.getElementById('aug' + field);
+    if (input) {
+      input.addEventListener('input', () => {
+        if (characterMode === 'augurio') {
+          saveAugurioModeData();
+          saveChar();
+        }
+      });
+    }
+  });
+}
+
+// Enhanced save character function to handle both modes
+function saveCharWithMode() {
+  // Save current mode data
+  if (characterMode === 'standard') {
+    saveStandardModeData();
+  } else if (characterMode === 'augurio') {
+    saveAugurioModeData();
+  }
+  
+  // Save character mode preference
+  charProfile.characterMode = characterMode;
+  
+  // Call original save function
+  saveChar();
+}
+
+// Override the original saveChar to use our enhanced version
+const originalSaveChar = saveChar;
+saveChar = function() {
+  saveCharWithMode();
+  return originalSaveChar.call(this);
+};
+
 // ================ PROFILE & ACCOUNT SYSTEM ================
 
 let profileData = JSON.parse(localStorage.getItem('profileData') || 'null');
@@ -3890,27 +4144,28 @@ function updateSyncStatus() {
 
 // Helper functions for character management
 function getCurrentCharacterData() {
-  // Extract current character data from the character sheet
+  // Extract current character data from the charProfile
   return {
-    id: 'current',
-    name: document.getElementById('charName')?.value || '',
-    ancestry: document.getElementById('charAncestry')?.value || '',
-    heritage: document.getElementById('charHeritage')?.value || '',
-    background: document.getElementById('charBackground')?.value || '',
-    image: document.getElementById('charImg')?.src || '',
-    // Add other character fields as needed
+    ...charProfile,
+    id: charProfile.id || 'current',
     lastModified: new Date().toISOString()
   };
 }
 
 function loadCharacterData(character) {
-  // Load character data into the character sheet UI
-  if (document.getElementById('charName')) document.getElementById('charName').value = character.name || '';
-  if (document.getElementById('charAncestry')) document.getElementById('charAncestry').value = character.ancestry || '';
-  if (document.getElementById('charHeritage')) document.getElementById('charHeritage').value = character.heritage || '';
-  if (document.getElementById('charBackground')) document.getElementById('charBackground').value = character.background || '';
-  if (document.getElementById('charImg') && character.image) document.getElementById('charImg').src = character.image;
-  // Load other character fields as needed
+  // Load complete character data into charProfile
+  charProfile = { ...charProfile, ...character };
+  
+  // Update character mode if specified
+  if (character.characterMode) {
+    characterMode = character.characterMode;
+    localStorage.setItem('characterMode', characterMode);
+    updateCharacterMode(characterMode, true);
+  }
+  
+  // Refresh the character sheet display
+  buildCharacterSheet();
+  applyCharImage();
 }
 
 function clearCharacterSheet() {

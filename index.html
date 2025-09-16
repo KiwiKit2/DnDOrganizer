@@ -462,7 +462,16 @@
             </div>
           </div>
 
-          <div class="char-abilities">
+          <!-- Character Mode Switcher -->
+          <div class="char-mode-switcher">
+            <div class="mode-tabs">
+              <button id="standardModeBtn" class="mode-tab active" data-mode="standard">Standard D&D</button>
+              <button id="augurioModeBtn" class="mode-tab" data-mode="augurio">Augurio Mode</button>
+            </div>
+          </div>
+
+          <!-- Standard D&D Abilities -->
+          <div id="standardAbilities" class="char-abilities mode-section">
             <h3>Ability Scores</h3>
             <div class="abilities-grid">
               <div class="ability-score">
@@ -494,6 +503,152 @@
                 <label>CHA</label>
                 <input id="charCha" type="number" min="1" max="30" value="10" />
                 <div class="modifier" id="chaMod">+0</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Augurio Mode Abilities -->
+          <div id="augurioAbilities" class="char-abilities mode-section hidden">
+            <h3>Augurio Stats</h3>
+            <div class="augurio-stats-grid">
+              <!-- Primary Combat Stats -->
+              <div class="stat-group">
+                <h4>Combat</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>ATK</label>
+                    <input id="augATK" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>DEF</label>
+                    <input id="augDEF" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>DEM</label>
+                    <input id="augDEM" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>VEL</label>
+                    <input id="augVEL" type="number" min="0" max="999" value="0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Special Stats -->
+              <div class="stat-group">
+                <h4>Special</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>VID</label>
+                    <input id="augVID" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>PRE</label>
+                    <input id="augPRE" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>EVA</label>
+                    <input id="augEVA" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>PAS</label>
+                    <input id="augPAS" type="number" min="0" max="999" value="0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Mental & Social -->
+              <div class="stat-group">
+                <h4>Mental & Social</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>SUE</label>
+                    <input id="augSUE" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>FZA</label>
+                    <input id="augFZA" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>CON</label>
+                    <input id="augCON" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>INT</label>
+                    <input id="augINT" type="number" min="0" max="999" value="0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Wisdom & Agility -->
+              <div class="stat-group">
+                <h4>Wisdom & Agility</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>SAG</label>
+                    <input id="augSAG" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>AGI</label>
+                    <input id="augAGI" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>CRM</label>
+                    <input id="augCRM" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>DST</label>
+                    <input id="augDST" type="number" min="0" max="999" value="0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Vitality & Energy -->
+              <div class="stat-group">
+                <h4>Vitality & Energy</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>VIT</label>
+                    <input id="augVIT" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>ETK</label>
+                    <input id="augETK" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>EAC</label>
+                    <input id="augEAC" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat">
+                    <label>EST</label>
+                    <input id="augEST" type="number" min="0" max="999" value="0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- ESP & Equipment -->
+              <div class="stat-group">
+                <h4>ESP & Equipment</h4>
+                <div class="stat-row">
+                  <div class="augurio-stat">
+                    <label>ESP</label>
+                    <input id="augESP" type="number" min="0" max="999" value="0" />
+                  </div>
+                  <div class="augurio-stat wide">
+                    <label>Hands</label>
+                    <input id="augHands" type="text" placeholder="Equipment in hands" />
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <div class="augurio-stat wide">
+                    <label>Equip</label>
+                    <textarea id="augEquip" placeholder="Equipped items and gear"></textarea>
+                  </div>
+                  <div class="augurio-stat wide">
+                    <label>Store</label>
+                    <textarea id="augStore" placeholder="Stored items and inventory"></textarea>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
