@@ -1777,8 +1777,21 @@ function loadChar(){
   }catch{} 
 }
 
+let savingChar = false;
+
 function saveChar(){ 
+  // Prevent infinite recursion
+  if (savingChar) {
+    console.warn('saveChar already in progress, skipping');
+    return;
+  }
+  
+  savingChar = true;
+  
   try{
+    // Save current mode data first
+    saveCharWithMode();
+    
     console.log('Saving character:', charProfile);
     
     // Ensure we have a character profile to save
@@ -1828,7 +1841,9 @@ function saveChar(){
   } catch(error) {
     console.error('Error saving character:', error);
     toast('Error saving character: ' + error.message);
-  } 
+  } finally {
+    savingChar = false;
+  }
 }
 
 function exportCharacter() {
@@ -3647,30 +3662,44 @@ function updateCharacterMode(mode, loadData = false) {
   }
 }
 
+let savingStandardMode = false;
+
 function saveStandardModeData() {
-  // Save current standard mode data to charProfile
-  const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-  abilities.forEach(ability => {
-    const input = document.getElementById('char' + ability.charAt(0).toUpperCase() + ability.slice(1));
-    if (input) {
-      charProfile.abilities[ability] = parseInt(input.value) || 10;
-    }
-  });
+  // Prevent infinite recursion
+  if (savingStandardMode) {
+    console.warn('saveStandardModeData already in progress, skipping');
+    return;
+  }
   
-  // Save combat stats
-  const combatFields = {
-    'charAC': 'ac',
-    'charHP': 'hp',
-    'charMaxHP': 'maxHP',
-    'charSpeed': 'speed'
-  };
+  savingStandardMode = true;
   
-  Object.entries(combatFields).forEach(([inputId, profileKey]) => {
-    const input = document.getElementById(inputId);
-    if (input) {
-      charProfile.combat[profileKey] = input.type === 'number' ? (parseInt(input.value) || 0) : input.value;
-    }
-  });
+  try {
+    // Save current standard mode data to charProfile
+    const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+    abilities.forEach(ability => {
+      const input = document.getElementById('char' + ability.charAt(0).toUpperCase() + ability.slice(1));
+      if (input) {
+        charProfile.abilities[ability] = parseInt(input.value) || 10;
+      }
+    });
+    
+    // Save combat stats
+    const combatFields = {
+      'charAC': 'ac',
+      'charHP': 'hp',
+      'charMaxHP': 'maxHP',
+      'charSpeed': 'speed'
+    };
+    
+    Object.entries(combatFields).forEach(([inputId, profileKey]) => {
+      const input = document.getElementById(inputId);
+      if (input) {
+        charProfile.combat[profileKey] = input.type === 'number' ? (parseInt(input.value) || 0) : input.value;
+      }
+    });
+  } finally {
+    savingStandardMode = false;
+  }
 }
 
 function loadStandardModeData() {
@@ -3797,27 +3826,31 @@ function setupAugurioAutoSave() {
 }
 
 // Enhanced save character function to handle both modes
+let savingCharWithMode = false;
+
 function saveCharWithMode() {
-  // Save current mode data
-  if (characterMode === 'standard') {
-    saveStandardModeData();
-  } else if (characterMode === 'augurio') {
-    saveAugurioModeData();
+  // Prevent infinite recursion
+  if (savingCharWithMode) {
+    console.warn('saveCharWithMode already in progress, skipping');
+    return;
   }
   
-  // Save character mode preference
-  charProfile.characterMode = characterMode;
+  savingCharWithMode = true;
   
-  // Call original save function
-  saveChar();
+  try {
+    // Save current mode data
+    if (characterMode === 'standard') {
+      saveStandardModeData();
+    } else if (characterMode === 'augurio') {
+      saveAugurioModeData();
+    }
+    
+    // Save character mode preference
+    charProfile.characterMode = characterMode;
+  } finally {
+    savingCharWithMode = false;
+  }
 }
-
-// Override the original saveChar to use our enhanced version
-const originalSaveChar = saveChar;
-saveChar = function() {
-  saveCharWithMode();
-  return originalSaveChar.call(this);
-};
 
 // ================ PROFILE & ACCOUNT SYSTEM ================
 
