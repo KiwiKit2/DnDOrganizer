@@ -100,6 +100,7 @@ function wireNav() {
         initMapBoard(); // Initialize board when map tab is clicked
       }
       if (v === 'character') { buildCharacterSheet(); renderCharMoves(); }
+      if (v === 'profile') { buildProfile(); }
     });
   });
   document.getElementById('themeSwitch').addEventListener('click', toggleTheme);
@@ -1762,10 +1763,57 @@ function loadChar(){
 }
 
 function saveChar(){ 
-  try{ 
+  try{
+    console.log('Saving character:', charProfile);
+    
+    // Ensure we have a character profile to save
+    if (!charProfile) {
+      console.error('No character profile to save');
+      toast('Error: No character data to save');
+      return;
+    }
+    
+    // Save to localStorage (traditional save)
     localStorage.setItem(CHAR_KEY, JSON.stringify(charProfile)); 
-    toast('Character saved!');
-  }catch{} 
+    
+    // Also save to profile system if user has a profile
+    if (profileData) {
+      const characterData = {
+        ...charProfile,
+        id: charProfile.id || 'char_' + Date.now(),
+        profileId: profileData.id,
+        lastModified: new Date().toISOString()
+      };
+      
+      // Find existing character or add new one
+      const existingIndex = allCharacters.findIndex(c => c.id === characterData.id || c.name === characterData.name);
+      
+      if (existingIndex >= 0) {
+        allCharacters[existingIndex] = characterData;
+      } else {
+        allCharacters.push(characterData);
+      }
+      
+      localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+    }
+    
+    // Verify the save worked
+    const saved = localStorage.getItem(CHAR_KEY);
+    if (saved) {
+      console.log('Character saved successfully');
+      toast('Character saved successfully!');
+      
+      // Refresh profile view if active
+      if (document.getElementById('view-profile').classList.contains('active')) {
+        renderCharactersList();
+      }
+    } else {
+      throw new Error('Save verification failed');
+    }
+  } catch(error) {
+    console.error('Error saving character:', error);
+    toast('Error saving character: ' + error.message);
+  } 
 }
 
 function exportCharacter() {
@@ -1982,9 +2030,35 @@ function bindCharInputs(){
   
   // Action buttons
   const saveBtn = document.getElementById('saveCharacterBtn');
+  const saveToProfileBtn = document.getElementById('saveToProfileBtn');
   const exportBtn = document.getElementById('exportCharacterBtn');
-  if (saveBtn) saveBtn.addEventListener('click', saveChar);
-  if (exportBtn) exportBtn.addEventListener('click', exportCharacter);
+  
+  if (saveBtn) {
+    console.log('Save button found, adding event listener');
+    saveBtn.addEventListener('click', (e) => {
+      console.log('Save button clicked!');
+      e.preventDefault();
+      saveChar();
+    });
+  } else {
+    console.error('Save character button not found!');
+  }
+  
+  if (saveToProfileBtn) {
+    saveToProfileBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!profileData) {
+        toast('Please create a profile first');
+        document.querySelector('.nav-btn[data-view="profile"]').click();
+        return;
+      }
+      saveCharacterToProfile();
+    });
+  }
+  
+  if (exportBtn) {
+    exportBtn.addEventListener('click', exportCharacter);
+  }
   
   // Move/spell functionality
   const filt = document.getElementById('charMoveFilter');
@@ -3061,20 +3135,6 @@ function setCharacterImage(imageData) {
   }
 }
 
-function closeCropModal() {
-  const modal = document.getElementById('imageCropperModal');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-  
-  // Remove global mouse event listeners
-  document.removeEventListener('mousemove', onDrag);
-  document.removeEventListener('mouseup', endDrag);
-  
-  currentCropData = null;
-  isDragging = false;
-  currentHandle = null;
-}
 function fillMoveForm(m){
   const f = document.getElementById('moveForm'); if(!f) return;
   f.name.value = m.name||''; 
@@ -3504,4 +3564,396 @@ function exportBoardState(){ try{ const data=exportStateObj(); const blob=new Bl
 async function importBoardState(e){ try{ const file=e.target.files?.[0]; if(!file) return; const txt=await file.text(); const json=JSON.parse(txt); importStateObj(json); toast('Board imported'); e.target.value=''; }catch(err){ console.error(err); toast('Import failed'); } }
 
 // Old startRulerMode function removed - now using simple ruler in initMapBoard()
+
+// ================ PROFILE & ACCOUNT SYSTEM ================
+
+let profileData = JSON.parse(localStorage.getItem('profileData') || 'null');
+let allCharacters = JSON.parse(localStorage.getItem('allCharacters') || '[]');
+
+function buildProfile() {
+  const authSection = document.getElementById('profileAuthSection');
+  const dashboardSection = document.getElementById('profileDashboardSection');
+  
+  if (profileData) {
+    // User is logged in - show dashboard
+    authSection.classList.add('hidden');
+    dashboardSection.classList.remove('hidden');
+    renderProfileDashboard();
+  } else {
+    // User needs to create profile
+    authSection.classList.remove('hidden');
+    dashboardSection.classList.add('hidden');
+    setupProfileAuth();
+  }
+}
+
+function setupProfileAuth() {
+  const createBtn = document.getElementById('createProfileBtn');
+  const importBtn = document.getElementById('importProfileBtn');
+  const avatarInput = document.getElementById('profileAvatar');
+  const avatarPreview = document.getElementById('profileAvatarPreview');
+  
+  createBtn.onclick = createProfile;
+  importBtn.onclick = importProfile;
+  
+  avatarInput.onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        document.getElementById('profileAvatarImg').src = event.target.result;
+        avatarPreview.classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+}
+
+function createProfile() {
+  const name = document.getElementById('profileName').value.trim();
+  const email = document.getElementById('profileEmail').value.trim();
+  const avatarImg = document.getElementById('profileAvatarImg');
+  
+  if (!name) {
+    toast('Please enter a display name');
+    return;
+  }
+  
+  profileData = {
+    id: 'profile_' + Date.now(),
+    name: name,
+    email: email || '',
+    avatar: avatarImg.src || '',
+    createdAt: new Date().toISOString(),
+    settings: {
+      autoSave: true,
+      darkMode: false,
+      analytics: false
+    },
+    lastSync: null
+  };
+  
+  localStorage.setItem('profileData', JSON.stringify(profileData));
+  
+  // Migrate current character if exists
+  if (getCurrentCharacterData()) {
+    const currentChar = getCurrentCharacterData();
+    currentChar.id = currentChar.id || 'char_' + Date.now();
+    currentChar.profileId = profileData.id;
+    currentChar.lastModified = new Date().toISOString();
+    allCharacters.push(currentChar);
+    localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+  }
+  
+  toast('Profile created successfully!');
+  buildProfile();
+}
+
+function importProfile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async (e) => {
+    try {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (data.profileData) {
+        profileData = data.profileData;
+        localStorage.setItem('profileData', JSON.stringify(profileData));
+      }
+      
+      if (data.characters) {
+        allCharacters = data.characters;
+        localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+      }
+      
+      toast('Profile imported successfully!');
+      buildProfile();
+    } catch (error) {
+      toast('Failed to import profile: ' + error.message);
+    }
+  };
+  input.click();
+}
+
+function renderProfileDashboard() {
+  // Update profile display
+  document.getElementById('currentProfileName').textContent = profileData.name;
+  document.getElementById('currentProfileEmail').textContent = profileData.email || 'No email';
+  document.getElementById('characterCount').textContent = allCharacters.length + ' characters';
+  
+  const avatar = document.getElementById('currentProfileAvatar');
+  if (profileData.avatar) {
+    avatar.src = profileData.avatar;
+    avatar.style.display = 'block';
+  } else {
+    avatar.style.display = 'none';
+  }
+  
+  // Setup dashboard actions
+  setupProfileActions();
+  renderCharactersList();
+  updateSyncStatus();
+}
+
+function setupProfileActions() {
+  document.getElementById('editProfileBtn').onclick = editProfile;
+  document.getElementById('logoutBtn').onclick = logoutProfile;
+  document.getElementById('newCharacterBtn').onclick = createNewCharacter;
+  document.getElementById('exportAllDataBtn').onclick = exportAllData;
+  document.getElementById('importAllDataBtn').onclick = () => document.getElementById('importDataInput').click();
+  document.getElementById('importDataInput').onchange = importAllData;
+  document.getElementById('syncToCloudBtn').onclick = syncToCloud;
+  document.getElementById('syncFromCloudBtn').onclick = syncFromCloud;
+  
+  // Settings
+  const autoSaveCheck = document.getElementById('autoSaveEnabled');
+  const darkModeCheck = document.getElementById('darkModeEnabled');
+  const analyticsCheck = document.getElementById('analyticsEnabled');
+  
+  autoSaveCheck.checked = profileData.settings.autoSave;
+  darkModeCheck.checked = profileData.settings.darkMode;
+  analyticsCheck.checked = profileData.settings.analytics;
+  
+  autoSaveCheck.onchange = () => updateSetting('autoSave', autoSaveCheck.checked);
+  darkModeCheck.onchange = () => updateSetting('darkMode', darkModeCheck.checked);
+  analyticsCheck.onchange = () => updateSetting('analytics', analyticsCheck.checked);
+}
+
+function renderCharactersList() {
+  const grid = document.getElementById('charactersList');
+  
+  if (allCharacters.length === 0) {
+    grid.innerHTML = '<div class="no-characters" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">No characters yet. Create your first one!</div>';
+    return;
+  }
+  
+  grid.innerHTML = allCharacters.map(char => `
+    <div class="character-card">
+      <div class="character-card-header">
+        ${char.image ? `<img src="${char.image}" class="character-avatar" alt="${char.name}" />` : '<div class="character-avatar"></div>'}
+        <div class="character-info">
+          <h4>${escapeHtml(char.name || 'Unnamed Character')}</h4>
+          <p>${escapeHtml(char.ancestry || '')} ${escapeHtml(char.heritage || '')} ${escapeHtml(char.background || '')}</p>
+        </div>
+      </div>
+      <div class="character-card-actions">
+        <button class="mini-btn" onclick="loadCharacter('${char.id}')">Load</button>
+        <button class="mini-btn" onclick="duplicateCharacter('${char.id}')">Copy</button>
+        <button class="ghost-btn" onclick="deleteCharacter('${char.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function createNewCharacter() {
+  // Switch to character view and clear current data
+  document.querySelector('.nav-btn[data-view="character"]').click();
+  clearCharacterSheet();
+  toast('New character sheet ready');
+}
+
+function loadCharacter(characterId) {
+  const character = allCharacters.find(c => c.id === characterId);
+  if (!character) {
+    toast('Character not found');
+    return;
+  }
+  
+  // Load character data into the character sheet
+  loadCharacterData(character);
+  
+  // Switch to character view
+  document.querySelector('.nav-btn[data-view="character"]').click();
+  toast(`Loaded ${character.name}`);
+}
+
+function duplicateCharacter(characterId) {
+  const character = allCharacters.find(c => c.id === characterId);
+  if (!character) return;
+  
+  const duplicate = {
+    ...character,
+    id: 'char_' + Date.now(),
+    name: (character.name || 'Unnamed') + ' (Copy)',
+    lastModified: new Date().toISOString()
+  };
+  
+  allCharacters.push(duplicate);
+  localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+  renderCharactersList();
+  toast('Character duplicated');
+}
+
+function deleteCharacter(characterId) {
+  if (!confirm('Delete this character permanently?')) return;
+  
+  allCharacters = allCharacters.filter(c => c.id !== characterId);
+  localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+  renderCharactersList();
+  toast('Character deleted');
+}
+
+function exportAllData() {
+  const data = {
+    profileData: profileData,
+    characters: allCharacters,
+    moves: moves,
+    exportDate: new Date().toISOString(),
+    version: '1.0'
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `organizer-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  toast('Data exported successfully');
+}
+
+async function importAllData(e) {
+  try {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    if (data.profileData) {
+      profileData = data.profileData;
+      localStorage.setItem('profileData', JSON.stringify(profileData));
+    }
+    
+    if (data.characters) {
+      allCharacters = data.characters;
+      localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+    }
+    
+    if (data.moves) {
+      moves = data.moves;
+      localStorage.setItem('movesStore', JSON.stringify(moves));
+    }
+    
+    toast('Data imported successfully');
+    buildProfile();
+    
+  } catch (error) {
+    toast('Import failed: ' + error.message);
+  }
+  
+  e.target.value = '';
+}
+
+function syncToCloud() {
+  toast('Cloud sync feature coming soon!');
+  // Placeholder for future cloud integration
+}
+
+function syncFromCloud() {
+  toast('Cloud sync feature coming soon!');
+  // Placeholder for future cloud integration
+}
+
+function updateSetting(key, value) {
+  profileData.settings[key] = value;
+  localStorage.setItem('profileData', JSON.stringify(profileData));
+  toast(`Setting updated: ${key}`);
+}
+
+function editProfile() {
+  toast('Profile editing coming soon!');
+  // Future: open modal to edit profile details
+}
+
+function logoutProfile() {
+  if (!confirm('Sign out? Your data will remain saved locally.')) return;
+  
+  profileData = null;
+  localStorage.removeItem('profileData');
+  buildProfile();
+  toast('Signed out');
+}
+
+function updateSyncStatus() {
+  const status = document.getElementById('syncStatus');
+  status.textContent = profileData.lastSync ? 
+    `Last sync: ${new Date(profileData.lastSync).toLocaleDateString()}` : 
+    'Local only';
+}
+
+// Helper functions for character management
+function getCurrentCharacterData() {
+  // Extract current character data from the character sheet
+  return {
+    id: 'current',
+    name: document.getElementById('charName')?.value || '',
+    ancestry: document.getElementById('charAncestry')?.value || '',
+    heritage: document.getElementById('charHeritage')?.value || '',
+    background: document.getElementById('charBackground')?.value || '',
+    image: document.getElementById('charImg')?.src || '',
+    // Add other character fields as needed
+    lastModified: new Date().toISOString()
+  };
+}
+
+function loadCharacterData(character) {
+  // Load character data into the character sheet UI
+  if (document.getElementById('charName')) document.getElementById('charName').value = character.name || '';
+  if (document.getElementById('charAncestry')) document.getElementById('charAncestry').value = character.ancestry || '';
+  if (document.getElementById('charHeritage')) document.getElementById('charHeritage').value = character.heritage || '';
+  if (document.getElementById('charBackground')) document.getElementById('charBackground').value = character.background || '';
+  if (document.getElementById('charImg') && character.image) document.getElementById('charImg').src = character.image;
+  // Load other character fields as needed
+}
+
+function clearCharacterSheet() {
+  // Clear all character sheet fields
+  const inputs = document.querySelectorAll('#view-character input, #view-character textarea, #view-character select');
+  inputs.forEach(input => {
+    if (input.type === 'checkbox' || input.type === 'radio') {
+      input.checked = false;
+    } else {
+      input.value = '';
+    }
+  });
+  
+  const charImg = document.getElementById('charImg');
+  if (charImg) charImg.src = 'images/char-placeholder.png';
+}
+
+// Enhanced save character function to work with profile system
+function saveCharacterToProfile() {
+  if (!profileData) {
+    toast('Please create a profile first');
+    return;
+  }
+  
+  const characterData = getCurrentCharacterData();
+  characterData.profileId = profileData.id;
+  
+  // Check if this is an existing character or new one
+  const existingIndex = allCharacters.findIndex(c => c.id === characterData.id);
+  
+  if (existingIndex >= 0) {
+    allCharacters[existingIndex] = characterData;
+  } else {
+    characterData.id = 'char_' + Date.now();
+    allCharacters.push(characterData);
+  }
+  
+  localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+  toast('Character saved to profile');
+  
+  // Refresh profile view if active
+  if (document.getElementById('view-profile').classList.contains('active')) {
+    renderCharactersList();
+  }
+}
 

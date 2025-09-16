@@ -23,7 +23,8 @@
         <button class="nav-btn" data-view="entities">Entities</button>
         <button class="nav-btn" data-view="board">Kanban</button>
         <button class="nav-btn" data-view="table">Table</button>
-  <button class="nav-btn" data-view="character">Character</button>
+        <button class="nav-btn" data-view="character">Character</button>
+        <button class="nav-btn" data-view="profile">Profile</button>
         <button class="nav-btn" data-view="about">About</button>
       </nav>
       <div class="sidebar-footer">
@@ -322,6 +323,120 @@
         <p>Use search, filters, board view, and quick export. Data never leaves your browser.</p>
       </section>
 
+      <!-- Profile View -->
+      <section id="view-profile" class="view">
+        <div class="profile-container">
+          <div class="profile-header">
+            <h1>Profile & Account Management</h1>
+            <p>Manage your characters, settings, and data across devices</p>
+          </div>
+
+          <!-- Profile Creation/Login -->
+          <div id="profileAuthSection" class="card-panel">
+            <h2>Create Account or Sign In</h2>
+            <div class="profile-auth-form">
+              <div class="form-group">
+                <label for="profileName">Display Name</label>
+                <input type="text" id="profileName" placeholder="Your name or username" />
+              </div>
+              <div class="form-group">
+                <label for="profileEmail">Email (Optional)</label>
+                <input type="email" id="profileEmail" placeholder="For account recovery and sync" />
+              </div>
+              <div class="form-group">
+                <label for="profileAvatar">Profile Picture</label>
+                <input type="file" id="profileAvatar" accept="image/*" class="file-input" />
+                <div id="profileAvatarPreview" class="avatar-preview hidden">
+                  <img id="profileAvatarImg" alt="Profile Avatar" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button id="createProfileBtn" class="accent-btn">Create Profile</button>
+                <button id="importProfileBtn" class="mini-btn">Import Existing</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Profile Dashboard (shown when logged in) -->
+          <div id="profileDashboardSection" class="hidden">
+            <div class="profile-info card-panel">
+              <div class="profile-display">
+                <div class="profile-avatar">
+                  <img id="currentProfileAvatar" alt="Your Avatar" />
+                </div>
+                <div class="profile-details">
+                  <h2 id="currentProfileName">Username</h2>
+                  <p id="currentProfileEmail">email@example.com</p>
+                  <p class="profile-stats">
+                    <span id="characterCount">0 characters</span> • 
+                    <span id="lastSyncTime">Last sync: Never</span>
+                  </p>
+                </div>
+                <div class="profile-actions">
+                  <button id="editProfileBtn" class="mini-btn">Edit Profile</button>
+                  <button id="logoutBtn" class="ghost-btn">Sign Out</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Character Management -->
+            <div class="character-management card-panel">
+              <div class="section-header">
+                <h3>Your Characters</h3>
+                <button id="newCharacterBtn" class="accent-btn">New Character</button>
+              </div>
+              <div id="charactersList" class="characters-grid">
+                <!-- Character cards will be dynamically inserted here -->
+              </div>
+            </div>
+
+            <!-- Data Management -->
+            <div class="data-management card-panel">
+              <h3>Data Management</h3>
+              <div class="data-actions">
+                <div class="action-group">
+                  <h4>Backup & Restore</h4>
+                  <button id="exportAllDataBtn" class="mini-btn">Export All Data</button>
+                  <button id="importAllDataBtn" class="mini-btn">Import Data</button>
+                  <input type="file" id="importDataInput" accept=".json" style="display:none" />
+                </div>
+                <div class="action-group">
+                  <h4>Cloud Sync</h4>
+                  <button id="syncToCloudBtn" class="mini-btn">Sync to Cloud</button>
+                  <button id="syncFromCloudBtn" class="mini-btn">Sync from Cloud</button>
+                  <p class="sync-status">Status: <span id="syncStatus">Local only</span></p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Settings -->
+            <div class="profile-settings card-panel">
+              <h3>Settings</h3>
+              <div class="settings-grid">
+                <div class="setting-item">
+                  <label>
+                    <input type="checkbox" id="autoSaveEnabled" checked />
+                    Auto-save characters
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label>
+                    <input type="checkbox" id="darkModeEnabled" />
+                    Dark mode (coming soon)
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label>
+                    <input type="checkbox" id="analyticsEnabled" />
+                    Usage analytics
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
   <section id="view-character" class="view">
         <div class="char-page">
@@ -342,6 +457,7 @@
             </div>
             <div class="char-actions">
               <button id="saveCharacterBtn" class="accent-btn">Save Character</button>
+              <button id="saveToProfileBtn" class="mini-btn">Save to Profile</button>
               <button id="exportCharacterBtn" class="mini-btn">Export JSON</button>
             </div>
           </div>
@@ -513,16 +629,16 @@
       </div>
       <div class="crop-container" id="cropContainer">
         <img id="cropImage" />
-        <div class="crop-overlay" id="cropOverlay" onmousedown="startDrag(event)">
+        <div class="crop-overlay" id="cropOverlay">
           <div class="crop-handles">
-            <div class="crop-handle nw" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle n" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle ne" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle w" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle e" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle sw" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle s" onmousedown="startDrag(event)"></div>
-            <div class="crop-handle se" onmousedown="startDrag(event)"></div>
+            <div class="crop-handle nw"></div>
+            <div class="crop-handle n"></div>
+            <div class="crop-handle ne"></div>
+            <div class="crop-handle w"></div>
+            <div class="crop-handle e"></div>
+            <div class="crop-handle sw"></div>
+            <div class="crop-handle s"></div>
+            <div class="crop-handle se"></div>
           </div>
         </div>
       </div>
