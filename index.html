@@ -155,15 +155,119 @@
       </section>
 
       <section id="view-entities" class="view">
-        <div class="comp-toolbar">
-          <input type="search" id="compSearch" placeholder="Search entities…" />
-          <label><input type="checkbox" id="showPlayers" checked /> Players</label>
-          <label><input type="checkbox" id="showItems" checked /> Items</label>
-          <label><input type="checkbox" id="showEnemies" checked /> Enemies</label>
-          <button id="newEntryBtn" class="mini-btn admin-only">New Entry</button>
+        <div class="entities-header">
+          <h2>Items & Entities</h2>
+          <div class="entities-actions">
+            <button id="addEntityBtn" class="primary-btn">Add New Item</button>
+            <button id="importExcelBtn" class="secondary-btn">Import Excel</button>
+            <button id="exportExcelBtn" class="secondary-btn">Export Excel</button>
+          </div>
         </div>
-        <div id="compGallery" class="grid-board"></div>
-        <div id="compDetail" class="comp-detail hidden"></div>
+        
+        <div class="entities-filters">
+          <div class="search-section">
+            <input type="search" id="entitySearch" placeholder="Search items by name, type, or tags..." />
+            <button id="clearSearchBtn" class="mini-btn">Clear</button>
+          </div>
+          
+          <div class="filter-section">
+            <label><input type="checkbox" id="showWeapons" checked /> Weapons</label>
+            <label><input type="checkbox" id="showArmor" checked /> Armor</label>
+            <label><input type="checkbox" id="showItems" checked /> Items</label>
+            <label><input type="checkbox" id="showMagic" checked /> Magic Items</label>
+            <label><input type="checkbox" id="showOther" checked /> Other</label>
+          </div>
+          
+          <div class="sort-section">
+            <label>Sort by:
+              <select id="sortBySelect">
+                <option value="name">Name</option>
+                <option value="type">Type</option>
+                <option value="created">Date Added</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        
+        <div id="entitiesGrid" class="entities-grid"></div>
+        
+        <!-- Entity Detail Modal -->
+        <div id="entityModal" class="modal hidden">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="entityModalTitle">Item Details</h3>
+              <button id="closeEntityModal" class="close-btn">×</button>
+            </div>
+            <div class="modal-body">
+              <form id="entityForm">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="entityName">Name *</label>
+                    <input type="text" id="entityName" required />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="entityType">Type *</label>
+                    <select id="entityType" required>
+                      <option value="">Select Type</option>
+                      <option value="weapon">Weapon</option>
+                      <option value="armor">Armor</option>
+                      <option value="potion">Potion</option>
+                      <option value="scroll">Scroll</option>
+                      <option value="wondrous">Wondrous Item</option>
+                      <option value="tool">Tool</option>
+                      <option value="treasure">Treasure</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="entityDescription">Description</label>
+                    <textarea id="entityDescription" rows="4" placeholder="Describe the item's appearance, properties, and effects..."></textarea>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="entityTags">Tags</label>
+                    <input type="text" id="entityTags" placeholder="magic, rare, combat (comma separated)" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="entityValue">Value (gp)</label>
+                    <input type="number" id="entityValue" min="0" step="0.01" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="entityWeight">Weight (lbs)</label>
+                    <input type="number" id="entityWeight" min="0" step="0.1" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="entityRarity">Rarity</label>
+                    <select id="entityRarity">
+                      <option value="common">Common</option>
+                      <option value="uncommon">Uncommon</option>
+                      <option value="rare">Rare</option>
+                      <option value="very-rare">Very Rare</option>
+                      <option value="legendary">Legendary</option>
+                      <option value="artifact">Artifact</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="entityImage">Image URL</label>
+                    <input type="url" id="entityImage" placeholder="https://example.com/image.jpg" />
+                  </div>
+                </div>
+                
+                <div class="modal-actions">
+                  <button type="button" id="cancelEntityBtn" class="secondary-btn">Cancel</button>
+                  <button type="submit" id="saveEntityBtn" class="primary-btn">Save Item</button>
+                  <button type="button" id="deleteEntityBtn" class="danger-btn hidden">Delete</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section id="view-board" class="view">
@@ -830,6 +934,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/compendium.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/excel-integration.js"></script>
   <script>if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }</script>
 </body>
 </html>

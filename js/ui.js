@@ -93,7 +93,13 @@ function wireNav() {
       document.querySelectorAll('.view').forEach(sec=>sec.classList.remove('active'));
       const target = document.querySelector('#view-' + v);
       if(target){ target.classList.add('active'); }
-      if (v === 'compendium' || v === 'entities') buildCompendium();
+      if (v === 'compendium') buildCompendium();
+      if (v === 'entities') {
+        // Use new enhanced entities system
+        if (window.entitiesSystem && window.entitiesSystem.renderEntities) {
+          window.entitiesSystem.renderEntities();
+        }
+      }
       if (v === 'map') {
         console.log('=== MAP TAB ACTIVATED ===');
         refreshMap();
@@ -248,7 +254,13 @@ function applyFilters() {
   if (state.sort.col) sortBy(state.sort.col); else renderRows();
   const view = document.querySelector('.nav-btn.active')?.dataset.view;
   if (view === 'board') buildKanban();
-  if (view === 'compendium' || view === 'entities') buildCompendium();
+  if (view === 'compendium') buildCompendium();
+  if (view === 'entities') {
+    // Use new enhanced entities system
+    if (window.entitiesSystem && window.entitiesSystem.renderEntities) {
+      window.entitiesSystem.renderEntities();
+    }
+  }
   if (view === 'map') refreshMap();
 }
 
