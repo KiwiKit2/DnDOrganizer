@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear LocalStorage</title>
+</head>
+<body>
+    <h1>Clear LocalStorage Test</h1>
+    <button onclick="clearStorage()">Clear All LocalStorage</button>
+    <button onclick="showStorage()">Show Current Storage</button>
+    <div id="output"></div>
+
+    <script>
+        function clearStorage() {
+            localStorage.clear();
+            document.getElementById('output').innerHTML = '<p>LocalStorage cleared!</p>';
+        }
+
+        function showStorage() {
+            const output = document.getElementById('output');
+            let html = '<h3>Current LocalStorage:</h3>';
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                html += `<p><strong>${key}:</strong> ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}</p>`;
+            }
+            output.innerHTML = html;
+        }
+
+        // Show storage on load
+        showStorage();
+    </script>
+</body>
+</html>

@@ -1737,6 +1737,7 @@ setInterval(()=> broadcastActiveView(), 2000);
 // ---------------- Character Page ----------------
 const CHAR_KEY='charProfileV2';
 let charProfile = { 
+  id: null, // Will be set when first saved
   name:'', class:'', level: 1, race:'', background:'', 
   abilities: {str:10, dex:10, con:10, int:10, wis:10, cha:10},
   combat: {ac:10, hp:0, maxHP:0, speed:'30 ft', profBonus:2},
@@ -1774,10 +1775,14 @@ function getProficiencyBonus(level) {
 function loadChar(){ 
   try{ 
     const raw=localStorage.getItem(CHAR_KEY); 
+    console.log('Loading character from localStorage...');
     if(raw){ 
       const p=JSON.parse(raw); 
+      console.log('Loaded character data:', p);
       if(p&&typeof p==='object') {
+        console.log('charProfile before merge:', charProfile);
         charProfile={...charProfile, ...p};
+        console.log('charProfile after merge:', charProfile);
         
         // Restore character mode if saved
         if (p.characterMode) {
@@ -1785,8 +1790,12 @@ function loadChar(){
           localStorage.setItem('characterMode', characterMode);
         }
       }
-    } 
-  }catch{} 
+    } else {
+      console.log('No character data found in localStorage');
+    }
+  }catch(e){ 
+    console.error('Error loading character:', e);
+  } 
 }
 
 let savingChar = false;
@@ -1801,6 +1810,10 @@ function saveChar(){
   savingChar = true;
   
   try{
+    console.log('=== saveChar called ===');
+    console.log('charProfile before save:', charProfile);
+    console.log('profileData exists:', !!profileData);
+    
     // Save current mode data first
     saveCharWithMode();
     
@@ -1818,19 +1831,32 @@ function saveChar(){
     
     // Also save to profile system if user has a profile
     if (profileData) {
+      // Ensure character has a stable ID
+      if (!charProfile.id) {
+        charProfile.id = 'char_' + Date.now();
+        console.log('Created new character ID:', charProfile.id);
+      } else {
+        console.log('Using existing character ID:', charProfile.id);
+      }
+      
       const characterData = {
         ...charProfile,
-        id: charProfile.id || 'char_' + Date.now(),
+        id: charProfile.id,
         profileId: profileData.id,
         lastModified: new Date().toISOString()
       };
       
       // Find existing character or add new one
-      const existingIndex = allCharacters.findIndex(c => c.id === characterData.id || c.name === characterData.name);
+      const existingIndex = allCharacters.findIndex(c => c.id === characterData.id);
+      console.log('Looking for character ID:', characterData.id);
+      console.log('Existing character index:', existingIndex);
+      console.log('Current allCharacters length:', allCharacters.length);
       
       if (existingIndex >= 0) {
+        console.log('Updating existing character at index:', existingIndex);
         allCharacters[existingIndex] = characterData;
       } else {
+        console.log('Adding new character to list');
         allCharacters.push(characterData);
       }
       
@@ -1872,6 +1898,20 @@ function exportCharacter() {
 
 function wireCharacterPage(){ 
   loadChar(); 
+  
+  // Ensure character has an ID if profile system is active
+  if (profileData && !charProfile.id) {
+    // Check if this character already exists in the profile system by name
+    const existingChar = allCharacters.find(c => c.name === charProfile.name && charProfile.name);
+    if (existingChar) {
+      console.log('Found existing character in profile system, using its ID');
+      charProfile.id = existingChar.id;
+    } else {
+      console.log('Creating new character ID for profile system');
+      charProfile.id = 'char_' + Date.now();
+    }
+  }
+  
   buildCharacterSheet(); 
   bindCharInputs(); 
   renderCharMoves(); 
@@ -1943,7 +1983,7 @@ function updateSkillsList() {
     checkbox.addEventListener('change', () => {
       charProfile.skills[skill.name] = checkbox.checked;
       updateSkillsList();
-      saveChar();
+      // Auto-save removed - use Save Character button instead
     });
     
     skillsList.appendChild(label);
@@ -1967,7 +2007,7 @@ function bindCharInputs(){
       el.value = charProfile[prop] || '';
       el.addEventListener('input', () => {
         charProfile[prop] = el.value;
-        saveChar();
+        // Auto-save removed - use Save Character button instead
       });
     }
   });
@@ -1980,7 +2020,7 @@ function bindCharInputs(){
       charProfile.level = parseInt(levelEl.value) || 1;
       charProfile.combat.profBonus = getProficiencyBonus(charProfile.level);
       buildCharacterSheet();
-      saveChar();
+      // Auto-save removed - use Save Character button instead
     });
   }
   
@@ -1995,7 +2035,7 @@ function bindCharInputs(){
         updateAbilityModifiers();
         updateSavingThrows();
         updateSkillsList();
-        saveChar();
+        // Auto-save removed - use Save Character button instead
       });
     }
   });
@@ -2015,7 +2055,7 @@ function bindCharInputs(){
       el.addEventListener('input', () => {
         charProfile.combat[prop] = ['ac', 'hp', 'maxHP'].includes(prop) ? 
           parseInt(el.value) || 0 : el.value;
-        saveChar();
+        // Auto-save removed - use Save Character button instead
       });
     }
   });
@@ -2028,7 +2068,7 @@ function bindCharInputs(){
       el.addEventListener('change', () => {
         charProfile.saves[ability] = el.checked;
         updateSavingThrows();
-        saveChar();
+        // Auto-save removed - use Save Character button instead
       });
     }
   });
@@ -2046,7 +2086,7 @@ function bindCharInputs(){
       el.value = charProfile.inv[prop] || '';
       el.addEventListener('input', () => {
         charProfile.inv[prop] = el.value;
-        saveChar();
+        // Auto-save removed - use Save Character button instead
       });
     }
   });
@@ -2105,8 +2145,8 @@ function bindCharInputs(){
     exportBtn.addEventListener('click', exportCharacter);
   }
   
-  // Setup Augurio mode auto-save listeners
-  setupAugurioAutoSave();
+  // Setup Augurio mode auto-save listeners - DISABLED
+  // setupAugurioAutoSave();
   
   // Move/spell functionality
   const filt = document.getElementById('charMoveFilter');
@@ -2125,8 +2165,8 @@ function bindCharInputs(){
 }
 function applyCharImage(){ const imgEl=document.getElementById('charImg'); const ph=document.getElementById('charImgPh'); if(!imgEl||!ph) return; if(charProfile.img){ imgEl.src=charProfile.img; imgEl.classList.remove('hidden'); ph.classList.add('hidden'); } else { imgEl.classList.add('hidden'); ph.classList.remove('hidden'); } }
 function buildMoveSuggestions(term, container){ if(!container) return; if(!term){ container.classList.add('hidden'); container.innerHTML=''; return; } term=term.toLowerCase(); const matches=(moves||[]).filter(m=> m.name.toLowerCase().includes(term) && !charProfile.moves.includes(m.name)).slice(0,10); if(!matches.length){ container.classList.add('hidden'); container.innerHTML=''; return; } container.innerHTML=''; matches.forEach(m=>{ const b=document.createElement('button'); b.textContent=m.name; b.addEventListener('click', ()=>{ quickAddMove(m.name); container.classList.add('hidden'); document.getElementById('charMoveAdd').value=''; }); container.appendChild(b); }); container.classList.remove('hidden'); }
-function quickAddMove(name){ if(!name) return; const mv=(moves||[]).find(m=> m.name.toLowerCase()===name.toLowerCase()); if(!mv){ toast('Move not found'); return; } if(charProfile.moves.includes(mv.name)){ toast('Already added'); return; } charProfile.moves.push(mv.name); saveChar(); renderCharMoves(); toast('Move added'); }
-function removeCharMove(name){ charProfile.moves=charProfile.moves.filter(n=> n!==name); saveChar(); renderCharMoves(); }
+function quickAddMove(name){ if(!name) return; const mv=(moves||[]).find(m=> m.name.toLowerCase()===name.toLowerCase()); if(!mv){ toast('Move not found'); return; } if(charProfile.moves.includes(mv.name)){ toast('Already added'); return; } charProfile.moves.push(mv.name); renderCharMoves(); toast('Move added'); }
+function removeCharMove(name){ charProfile.moves=charProfile.moves.filter(n=> n!==name); renderCharMoves(); }
 function renderCharMoves(){ const list=document.getElementById('charMovesList'); if(!list) return; const filt=(document.getElementById('charMoveFilter')?.value||'').toLowerCase(); list.innerHTML=''; const assigned=charProfile.moves.map(n=> (moves||[]).find(m=> m.name===n)).filter(Boolean).filter(m=> !filt || m.name.toLowerCase().includes(filt) || (m.tags||[]).some(t=>t.toLowerCase().includes(filt))); if(!assigned.length){ list.innerHTML='<div class="muted">No moves assigned.</div>'; return; } assigned.forEach(m=>{ const card=document.createElement('div'); card.className='char-move'; card.innerHTML=`<button class='remove-move' title='Remove'>&times;</button><h3>${escapeHtml(m.name)}</h3><div class='desc small'>${escapeHtml(m.description||'')}</div><div class='tags'>${(m.tags||[]).map(t=>`<span class='tag'>${escapeHtml(t)}</span>`).join('')}</div>`; card.querySelector('.remove-move').addEventListener('click', ()=> removeCharMove(m.name)); list.appendChild(card); }); }
 
 // ----- Walls -----
@@ -3622,12 +3662,17 @@ function setupCharacterModes() {
   const augurioBtn = document.getElementById('augurioModeBtn');
   
   if (standardBtn && augurioBtn) {
-    // Set initial mode
+    // Set initial mode and ensure proper separation
     updateCharacterMode(characterMode, false);
     
     // Add click handlers
     standardBtn.addEventListener('click', () => switchCharacterMode('standard'));
     augurioBtn.addEventListener('click', () => switchCharacterMode('augurio'));
+    
+    // Ensure proper initial state - force hide the inactive mode
+    setTimeout(() => {
+      updateCharacterMode(characterMode, true);
+    }, 100);
   }
 }
 
@@ -3651,6 +3696,17 @@ function switchCharacterMode(mode) {
 function updateCharacterMode(mode, loadData = false) {
   const standardBtn = document.getElementById('standardModeBtn');
   const augurioBtn = document.getElementById('augurioModeBtn');
+  
+  // All D&D sections that should be hidden in Augurio mode (but NOT the header)
+  const dndSectionClasses = [
+    'char-combat-stats',
+    'char-skills', 
+    'char-features', 
+    'char-inv',
+    'char-moves',
+    'char-backstory'
+  ];
+  
   const standardSection = document.getElementById('standardAbilities');
   const augurioSection = document.getElementById('augurioAbilities');
   
@@ -3660,18 +3716,40 @@ function updateCharacterMode(mode, loadData = false) {
     augurioBtn.classList.toggle('active', mode === 'augurio');
   }
   
-  // Show/hide sections
-  if (standardSection && augurioSection) {
-    if (mode === 'standard') {
-      standardSection.classList.remove('hidden');
-      augurioSection.classList.add('hidden');
-      if (loadData) loadStandardModeData();
-    } else {
-      standardSection.classList.add('hidden');
-      augurioSection.classList.remove('hidden');
-      if (loadData) loadAugurioModeData();
-    }
+  // Show/hide sections with complete separation (but keep header visible always)
+  if (mode === 'standard') {
+    // Show standard abilities section
+    if (standardSection) standardSection.classList.remove('hidden');
+    
+    // Show all D&D sections
+    dndSectionClasses.forEach(className => {
+      const sections = document.querySelectorAll('.' + className);
+      sections.forEach(section => section.classList.remove('hidden'));
+    });
+    
+    // Hide Augurio section
+    if (augurioSection) augurioSection.classList.add('hidden');
+    
+    if (loadData) loadStandardModeData();
+  } else {
+    // Hide standard abilities section
+    if (standardSection) standardSection.classList.add('hidden');
+    
+    // Hide all D&D sections
+    dndSectionClasses.forEach(className => {
+      const sections = document.querySelectorAll('.' + className);
+      sections.forEach(section => section.classList.add('hidden'));
+    });
+    
+    // Show Augurio section
+    if (augurioSection) augurioSection.classList.remove('hidden');
+    
+    if (loadData) loadAugurioModeData();
   }
+  
+  // Make sure the shared header is always visible
+  const header = document.querySelector('.char-header');
+  if (header) header.classList.remove('hidden');
 }
 
 let savingStandardMode = false;
@@ -3748,28 +3826,45 @@ function saveAugurioModeData() {
     charProfile.augurio = {};
   }
   
-  // Save all Augurio stats
+  // Save all Augurio stats with new IDs
   const augurioStats = [
-    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
-    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
-    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+    'atf', 'atm', 'def', 'dem', 'pas', 'vel', 'vid', 'pre', 'eva', 'sue',
+    'fza', 'con', 'int', 'sag', 'agi', 'crm', 'dst', 'vit',
+    'etk', 'eac', 'est', 'esp'
   ];
   
   augurioStats.forEach(stat => {
-    const input = document.getElementById('aug' + stat);
+    const input = document.getElementById('augurio-' + stat);
     if (input) {
-      charProfile.augurio[stat.toLowerCase()] = parseInt(input.value) || 0;
+      charProfile.augurio[stat] = parseInt(input.value) || 0;
     }
   });
   
-  // Save text fields
-  const textFields = ['Hands', 'Equip', 'Store'];
-  textFields.forEach(field => {
-    const input = document.getElementById('aug' + field);
-    if (input) {
-      charProfile.augurio[field.toLowerCase()] = input.value || '';
-    }
-  });
+  // Save inventory fields
+  const handsInput = document.getElementById('augurioHands');
+  if (handsInput) {
+    charProfile.augurio.hands = handsInput.value || '';
+  }
+  
+  const equipInput = document.getElementById('augurioEquip');
+  if (equipInput) {
+    charProfile.augurio.equip = equipInput.value || '';
+  }
+  
+  const storeInput = document.getElementById('augurioStore');
+  if (storeInput) {
+    charProfile.augurio.store = storeInput.value || '';
+  }
+  
+  // Save moves data
+  const moveNameInput = document.getElementById('augurioMoveName');
+  const moveDescInput = document.getElementById('augurioMoveDescription');
+  const moveTagsInput = document.getElementById('augurioMoveTags');
+  
+  if (moveNameInput || moveDescInput || moveTagsInput) {
+    if (!charProfile.augurio.moves) charProfile.augurio.moves = [];
+    // This could be enhanced to manage multiple moves
+  }
 }
 
 function loadAugurioModeData() {
@@ -3778,40 +3873,50 @@ function loadAugurioModeData() {
     charProfile.augurio = {};
   }
   
-  // Load all Augurio stats
+  // Load all Augurio stats with new IDs
   const augurioStats = [
-    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
-    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
-    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+    'atf', 'atm', 'def', 'dem', 'pas', 'vel', 'vid', 'pre', 'eva', 'sue',
+    'fza', 'con', 'int', 'sag', 'agi', 'crm', 'dst', 'vit',
+    'etk', 'eac', 'est', 'esp'
   ];
   
   augurioStats.forEach(stat => {
-    const input = document.getElementById('aug' + stat);
+    const input = document.getElementById('augurio-' + stat);
     if (input) {
-      input.value = charProfile.augurio[stat.toLowerCase()] || 0;
+      input.value = charProfile.augurio[stat] || 0;
     }
   });
   
-  // Load text fields
-  const textFields = ['Hands', 'Equip', 'Store'];
-  textFields.forEach(field => {
-    const input = document.getElementById('aug' + field);
-    if (input) {
-      input.value = charProfile.augurio[field.toLowerCase()] || '';
-    }
-  });
+  // Load inventory fields
+  const handsInput = document.getElementById('augurioHands');
+  if (handsInput) {
+    handsInput.value = charProfile.augurio.hands || '';
+  }
+  
+  const equipInput = document.getElementById('augurioEquip');
+  if (equipInput) {
+    equipInput.value = charProfile.augurio.equip || '';
+  }
+  
+  const storeInput = document.getElementById('augurioStore');
+  if (storeInput) {
+    storeInput.value = charProfile.augurio.store || '';
+  }
 }
 
 function setupAugurioAutoSave() {
-  // Setup auto-save for all Augurio mode inputs
+  // AUTO-SAVE DISABLED - Use Save Character button instead
+  // This function was causing duplicate character saves on every keystroke
+  /*
+  // Setup auto-save for all Augurio mode inputs with NEW IDs
   const augurioStats = [
-    'ATK', 'DEF', 'DEM', 'VEL', 'VID', 'PRE', 'EVA', 'PAS',
-    'SUE', 'FZA', 'CON', 'INT', 'SAG', 'AGI', 'CRM', 'DST',
-    'VIT', 'ETK', 'EAC', 'EST', 'ESP'
+    'atf', 'atm', 'def', 'dem', 'pas', 'vel', 'vid', 'pre', 'eva', 'sue',
+    'fza', 'con', 'int', 'sag', 'agi', 'crm', 'dst', 'vit',
+    'etk', 'eac', 'est', 'esp'
   ];
   
   augurioStats.forEach(stat => {
-    const input = document.getElementById('aug' + stat);
+    const input = document.getElementById('augurio-' + stat);
     if (input) {
       input.addEventListener('input', () => {
         if (characterMode === 'augurio') {
@@ -3822,10 +3927,10 @@ function setupAugurioAutoSave() {
     }
   });
   
-  // Setup auto-save for text fields
-  const textFields = ['Hands', 'Equip', 'Store'];
-  textFields.forEach(field => {
-    const input = document.getElementById('aug' + field);
+  // Setup auto-save for inventory fields with correct IDs
+  const inventoryFields = ['augurioHands', 'augurioEquip', 'augurioStore'];
+  inventoryFields.forEach(fieldId => {
+    const input = document.getElementById(fieldId);
     if (input) {
       input.addEventListener('input', () => {
         if (characterMode === 'augurio') {
@@ -3835,6 +3940,7 @@ function setupAugurioAutoSave() {
       });
     }
   });
+  */
 }
 
 // Enhanced save character function to handle both modes
@@ -3868,6 +3974,40 @@ function saveCharWithMode() {
 
 let profileData = JSON.parse(localStorage.getItem('profileData') || 'null');
 let allCharacters = JSON.parse(localStorage.getItem('allCharacters') || '[]');
+
+// Migrate existing character to profile system if needed
+function migrateExistingCharacter() {
+  if (profileData && allCharacters.length === 0) {
+    const existingChar = localStorage.getItem(CHAR_KEY);
+    if (existingChar) {
+      try {
+        const charData = JSON.parse(existingChar);
+        if (charData && charData.name) {
+          console.log('Migrating existing character to profile system');
+          const migratedChar = {
+            ...charData,
+            id: charData.id || 'char_migrated_' + Date.now(),
+            profileId: profileData.id,
+            lastModified: new Date().toISOString()
+          };
+          allCharacters.push(migratedChar);
+          localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+          
+          // Update current charProfile with the proper ID
+          charProfile = { ...charProfile, ...migratedChar };
+          console.log('Character migrated successfully');
+        }
+      } catch (e) {
+        console.error('Error migrating character:', e);
+      }
+    }
+  }
+}
+
+// Run migration check
+if (profileData) {
+  migrateExistingCharacter();
+}
 
 function buildProfile() {
   const authSection = document.getElementById('profileAuthSection');
@@ -4226,6 +4366,33 @@ function clearCharacterSheet() {
   
   const charImg = document.getElementById('charImg');
   if (charImg) charImg.src = 'images/char-placeholder.png';
+}
+
+function createNewCharacter() {
+  // Reset character profile with new ID
+  charProfile = { 
+    id: null, // Will be set when first saved
+    name:'', class:'', level: 1, race:'', background:'', 
+    abilities: {str:10, dex:10, con:10, int:10, wis:10, cha:10},
+    combat: {ac:10, hp:0, maxHP:0, speed:'30 ft', profBonus:2},
+    saves: {str:false, dex:false, con:false, int:false, wis:false, cha:false},
+    skills: {},
+    features:'', backstory:'',
+    inv:{weapons:'', armor:'', other:''}, 
+    moves:[], img:null,
+    characterMode: 'standard',
+    augurio: {
+      atk:0, def:0, dem:0, vel:0, vid:0, pre:0, eva:0, pas:0,
+      sue:0, fza:0, con:0, int:0, sag:0, agi:0, crm:0, dst:0,
+      vit:0, etk:0, eac:0, est:0, esp:0,
+      hands:'', equip:'', store:''
+    }
+  };
+  
+  // Refresh the display
+  buildCharacterSheet();
+  clearCharacterSheet();
+  toast('New character created');
 }
 
 // Enhanced save character function to work with profile system
