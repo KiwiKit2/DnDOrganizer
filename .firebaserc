@@ -1,0 +1,17 @@
+# Firebase Hosting deployment files
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# Local development
+node_modules/
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -20,6 +20,9 @@
   <div class="brand">DnDex</div>
       <nav class="nav">
         <button class="nav-btn active" data-view="moves">Moves</button>
+        <button class="nav-btn" data-view="items">Items</button>
+        <button class="nav-btn" data-view="events">Events</button>
+        <button class="nav-btn" data-view="conditions">Conditions</button>
         <button class="nav-btn" data-view="entities">Entities</button>
         <button class="nav-btn" data-view="board">Kanban</button>
         <button class="nav-btn" data-view="table">Table</button>
@@ -149,6 +152,354 @@
                 <h3>No moves yet</h3>
                 <p>Create your first move using the form on the left.</p>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-items" class="view">
+        <div class="entities-header">
+          <h2>Items & Equipment</h2>
+          <div class="entities-actions">
+            <button id="addItemBtn" class="primary-btn">Add New Item</button>
+            <button id="importItemsBtn" class="secondary-btn">Import Excel</button>
+            <button id="exportItemsBtn" class="secondary-btn">Export Excel</button>
+          </div>
+        </div>
+        
+        <div class="entities-filters">
+          <div class="search-section">
+            <input type="search" id="itemSearch" placeholder="Search items by name, type, or tags..." />
+            <button id="clearItemSearchBtn" class="mini-btn">Clear</button>
+          </div>
+          
+          <div class="filter-section">
+            <label><input type="checkbox" id="showWeaponsItems" checked /> Weapons</label>
+            <label><input type="checkbox" id="showArmorItems" checked /> Armor</label>
+            <label><input type="checkbox" id="showPotionsItems" checked /> Potions</label>
+            <label><input type="checkbox" id="showMagicItems" checked /> Magic Items</label>
+            <label><input type="checkbox" id="showToolsItems" checked /> Tools</label>
+            <label><input type="checkbox" id="showOtherItems" checked /> Other</label>
+          </div>
+          
+          <div class="sort-section">
+            <label>Sort by:
+              <select id="sortItemsSelect">
+                <option value="name">Name</option>
+                <option value="type">Type</option>
+                <option value="value">Value</option>
+                <option value="created">Date Added</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        
+        <div id="itemsGrid" class="entities-grid"></div>
+        
+        <!-- Item Detail Modal -->
+        <div id="itemModal" class="modal hidden">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="itemModalTitle">Item Details</h3>
+              <button id="closeItemModal" class="close-btn">×</button>
+            </div>
+            <div class="modal-body">
+              <form id="itemForm">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="itemName">Name *</label>
+                    <input type="text" id="itemName" required />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="itemType">Type *</label>
+                    <select id="itemType" required>
+                      <option value="">Select Type</option>
+                      <option value="weapon">Weapon</option>
+                      <option value="armor">Armor</option>
+                      <option value="potion">Potion</option>
+                      <option value="scroll">Scroll</option>
+                      <option value="wondrous">Wondrous Item</option>
+                      <option value="tool">Tool</option>
+                      <option value="treasure">Treasure</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="itemDescription">Description</label>
+                    <textarea id="itemDescription" rows="4" placeholder="Describe the item's appearance, properties, and effects..."></textarea>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="itemTags">Tags</label>
+                    <input type="text" id="itemTags" placeholder="magic, rare, combat (comma separated)" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="itemValue">Value (gp)</label>
+                    <input type="number" id="itemValue" min="0" step="0.01" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="itemWeight">Weight (lbs)</label>
+                    <input type="number" id="itemWeight" min="0" step="0.1" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="itemRarity">Rarity</label>
+                    <select id="itemRarity">
+                      <option value="common">Common</option>
+                      <option value="uncommon">Uncommon</option>
+                      <option value="rare">Rare</option>
+                      <option value="very-rare">Very Rare</option>
+                      <option value="legendary">Legendary</option>
+                      <option value="artifact">Artifact</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="itemImage">Image URL</label>
+                    <input type="url" id="itemImage" placeholder="https://example.com/image.jpg" />
+                  </div>
+                </div>
+                
+                <div class="modal-actions">
+                  <button type="button" id="cancelItemBtn" class="secondary-btn">Cancel</button>
+                  <button type="submit" id="saveItemBtn" class="primary-btn">Save Item</button>
+                  <button type="button" id="deleteItemBtn" class="danger-btn hidden">Delete</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-events" class="view">
+        <div class="entities-header">
+          <h2>Events & Encounters</h2>
+          <div class="entities-actions">
+            <button id="addEventBtn" class="primary-btn">Add New Event</button>
+            <button id="importEventsBtn" class="secondary-btn">Import Excel</button>
+            <button id="exportEventsBtn" class="secondary-btn">Export Excel</button>
+          </div>
+        </div>
+        
+        <div class="entities-filters">
+          <div class="search-section">
+            <input type="search" id="eventSearch" placeholder="Search events by name, type, or tags..." />
+            <button id="clearEventSearchBtn" class="mini-btn">Clear</button>
+          </div>
+          
+          <div class="filter-section">
+            <label><input type="checkbox" id="showCombatEvents" checked /> Combat</label>
+            <label><input type="checkbox" id="showSocialEvents" checked /> Social</label>
+            <label><input type="checkbox" id="showExplorationEvents" checked /> Exploration</label>
+            <label><input type="checkbox" id="showPuzzleEvents" checked /> Puzzle</label>
+            <label><input type="checkbox" id="showStoryEvents" checked /> Story</label>
+            <label><input type="checkbox" id="showRandomEvents" checked /> Random</label>
+          </div>
+          
+          <div class="sort-section">
+            <label>Sort by:
+              <select id="sortEventsSelect">
+                <option value="name">Name</option>
+                <option value="type">Type</option>
+                <option value="difficulty">Difficulty</option>
+                <option value="created">Date Added</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        
+        <div id="eventsGrid" class="entities-grid"></div>
+        
+        <!-- Event Detail Modal -->
+        <div id="eventModal" class="modal hidden">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="eventModalTitle">Event Details</h3>
+              <button id="closeEventModal" class="close-btn">×</button>
+            </div>
+            <div class="modal-body">
+              <form id="eventForm">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="eventName">Name *</label>
+                    <input type="text" id="eventName" required />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="eventType">Type *</label>
+                    <select id="eventType" required>
+                      <option value="">Select Type</option>
+                      <option value="combat">Combat</option>
+                      <option value="social">Social</option>
+                      <option value="exploration">Exploration</option>
+                      <option value="puzzle">Puzzle</option>
+                      <option value="story">Story</option>
+                      <option value="random">Random</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="eventDifficulty">Difficulty</label>
+                    <select id="eventDifficulty">
+                      <option value="trivial">Trivial</option>
+                      <option value="easy">Easy</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="hard">Hard</option>
+                      <option value="deadly">Deadly</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="eventDuration">Duration</label>
+                    <input type="text" id="eventDuration" placeholder="1 hour, 10 minutes, etc." />
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="eventDescription">Description</label>
+                    <textarea id="eventDescription" rows="4" placeholder="Describe what happens in this event..."></textarea>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="eventSetup">Setup & Preparation</label>
+                    <textarea id="eventSetup" rows="3" placeholder="What needs to be prepared for this event..."></textarea>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="eventTags">Tags</label>
+                    <input type="text" id="eventTags" placeholder="boss, dungeon, roleplay (comma separated)" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="eventRewards">Rewards</label>
+                    <input type="text" id="eventRewards" placeholder="XP, gold, items, etc." />
+                  </div>
+                </div>
+                
+                <div class="modal-actions">
+                  <button type="button" id="cancelEventBtn" class="secondary-btn">Cancel</button>
+                  <button type="submit" id="saveEventBtn" class="primary-btn">Save Event</button>
+                  <button type="button" id="deleteEventBtn" class="danger-btn hidden">Delete</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-conditions" class="view">
+        <div class="entities-header">
+          <h2>Conditions & Effects</h2>
+          <div class="entities-actions">
+            <button id="addConditionBtn" class="primary-btn">Add New Condition</button>
+            <button id="importConditionsBtn" class="secondary-btn">Import Excel</button>
+            <button id="exportConditionsBtn" class="secondary-btn">Export Excel</button>
+          </div>
+        </div>
+        
+        <div class="entities-filters">
+          <div class="search-section">
+            <input type="search" id="conditionSearch" placeholder="Search conditions by name, type, or effects..." />
+            <button id="clearConditionSearchBtn" class="mini-btn">Clear</button>
+          </div>
+          
+          <div class="filter-section">
+            <label><input type="checkbox" id="showDebuffConditions" checked /> Debuffs</label>
+            <label><input type="checkbox" id="showBuffConditions" checked /> Buffs</label>
+            <label><input type="checkbox" id="showStatusConditions" checked /> Status</label>
+            <label><input type="checkbox" id="showMagicalConditions" checked /> Magical</label>
+            <label><input type="checkbox" id="showPhysicalConditions" checked /> Physical</label>
+            <label><input type="checkbox" id="showOtherConditions" checked /> Other</label>
+          </div>
+          
+          <div class="sort-section">
+            <label>Sort by:
+              <select id="sortConditionsSelect">
+                <option value="name">Name</option>
+                <option value="type">Type</option>
+                <option value="severity">Severity</option>
+                <option value="created">Date Added</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        
+        <div id="conditionsGrid" class="entities-grid"></div>
+        
+        <!-- Condition Detail Modal -->
+        <div id="conditionModal" class="modal hidden">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="conditionModalTitle">Condition Details</h3>
+              <button id="closeConditionModal" class="close-btn">×</button>
+            </div>
+            <div class="modal-body">
+              <form id="conditionForm">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="conditionName">Name *</label>
+                    <input type="text" id="conditionName" required />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="conditionType">Type *</label>
+                    <select id="conditionType" required>
+                      <option value="">Select Type</option>
+                      <option value="debuff">Debuff</option>
+                      <option value="buff">Buff</option>
+                      <option value="status">Status</option>
+                      <option value="magical">Magical</option>
+                      <option value="physical">Physical</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="conditionSeverity">Severity</label>
+                    <select id="conditionSeverity">
+                      <option value="minor">Minor</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="major">Major</option>
+                      <option value="severe">Severe</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="conditionDuration">Duration</label>
+                    <input type="text" id="conditionDuration" placeholder="1 round, 1 minute, until healed, etc." />
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="conditionDescription">Description</label>
+                    <textarea id="conditionDescription" rows="4" placeholder="Describe what this condition does..."></textarea>
+                  </div>
+                  
+                  <div class="form-group full-width">
+                    <label for="conditionEffects">Game Effects</label>
+                    <textarea id="conditionEffects" rows="3" placeholder="Mechanical effects (disadvantage on attacks, -2 to AC, etc.)"></textarea>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="conditionTags">Tags</label>
+                    <input type="text" id="conditionTags" placeholder="poison, charm, fear (comma separated)" />
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="conditionRemoval">How to Remove</label>
+                    <input type="text" id="conditionRemoval" placeholder="Lesser restoration, long rest, etc." />
+                  </div>
+                </div>
+                
+                <div class="modal-actions">
+                  <button type="button" id="cancelConditionBtn" class="secondary-btn">Cancel</button>
+                  <button type="submit" id="saveConditionBtn" class="primary-btn">Save Condition</button>
+                  <button type="button" id="deleteConditionBtn" class="danger-btn hidden">Delete</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
@@ -448,6 +799,10 @@
                 <input type="email" id="profileEmail" placeholder="For account recovery and sync" />
               </div>
               <div class="form-group">
+                <label for="profilePassword">Password</label>
+                <input type="password" id="profilePassword" placeholder="Minimum 6 characters" autocomplete="new-password" />
+              </div>
+              <div class="form-group">
                 <label for="profileAvatar">Profile Picture</label>
                 <input type="file" id="profileAvatar" accept="image/*" class="file-input" />
                 <div id="profileAvatarPreview" class="avatar-preview hidden">
@@ -455,9 +810,15 @@
                 </div>
               </div>
               <div class="form-actions">
-                <button id="createProfileBtn" class="accent-btn">Create Profile</button>
-                <button id="importProfileBtn" class="mini-btn">Import Existing</button>
+                <button id="createProfileBtn" class="accent-btn">Create / Sign In</button>
+                <button id="importProfileBtn" class="mini-btn">Import Local</button>
+                <button id="googleSignInBtn" type="button" class="mini-btn" style="background:#fff;color:#222;border:1px solid var(--border);display:flex;align-items:center;gap:6px">⚡ Google</button>
               </div>
+              <p id="authMessage" class="auth-message" style="min-height:1.2em;font-size:0.85rem;color:var(--text-dim);"></p>
+              <details class="mini" style="margin-top:4px">
+                <summary style="cursor:pointer;font-size:0.8rem">How sign‑in works</summary>
+                <small style="display:block;line-height:1.3;margin-top:4px">Email + password creates an account (or signs you in if it exists). Google button uses your Google account. First cloud login will prompt to import your local characters if the cloud is empty.</small>
+              </details>
             </div>
           </div>
 
@@ -942,10 +1303,18 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- Firebase (optional, used when 'Use Firebase' is enabled) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <!-- Provide config via firebase-config.js (ignored) or fallback sample for dev reference -->
+  <script src="js/firebase-config.sample.js" data-sample="true"></script>
+  <script src="js/firebase-init.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/compendium.js"></script>
   <script src="js/entities.js"></script>
+  <script src="js/items.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/conditions.js"></script>
   <script src="js/excel-integration.js"></script>
   <script>if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }</script>
 </body>

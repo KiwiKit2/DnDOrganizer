@@ -25,6 +25,10 @@ const els = {
 
 // Moves feature (lightweight list independent from sheet)
 let moves = JSON.parse(localStorage.getItem('movesStore')||'[]');
+
+// Cloud sync state for moves & entities
+let movesListenerUnsub = null;
+let entitiesListenerUnsub = null;
 let editingMove = null;
 let movesUndoStack=[]; let movesRedoStack=[]; // new undo/redo stacks
 
@@ -2099,13 +2103,35 @@ function bindCharInputs(){
     imgInput.addEventListener('change', async ev => {
       const file = ev.target.files?.[0];
       if (!file) return;
-      const rd = new FileReader();
-      rd.onload = () => {
-        charProfile.img = rd.result;
-        saveChar();
-        applyCharImage();
-      };
-      rd.readAsDataURL(file);
+      // If firebase storage available & user signed in, upload file; else fallback to base64 local
+      if(firebaseUser && window.firebase?.storage){
+        try {
+          setAuthMessage('Uploading image…');
+          const storage = window.firebase.storage();
+          const path = `users/${firebaseUser.uid}/characters/${charProfile.id || 'temp'}/portrait_${Date.now()}_${file.name}`;
+          const ref = storage.ref().child(path);
+          await ref.put(file);
+            const url = await ref.getDownloadURL();
+            charProfile.img = url; // store URL
+            saveChar();
+            applyCharImage();
+            setAuthMessage('Image uploaded');
+            // Push character if exists in profile
+            if(firebaseUser && userDocRef){
+              const existing = allCharacters.find(c=>c.id===charProfile.id);
+              if(existing){ existing.img = url; pushSingleCharacter(existing); }
+            }
+        } catch(e){
+          console.warn('Storage upload failed, fallback to base64', e);
+          const rd = new FileReader();
+          rd.onload = () => { charProfile.img = rd.result; saveChar(); applyCharImage(); setAuthMessage('Stored image locally (offline)'); };
+          rd.readAsDataURL(file);
+        }
+      } else {
+        const rd = new FileReader();
+        rd.onload = () => { charProfile.img = rd.result; saveChar(); applyCharImage(); };
+        rd.readAsDataURL(file);
+      }
     });
     applyCharImage();
   }
@@ -3975,6 +4001,658 @@ function saveCharWithMode() {
 let profileData = JSON.parse(localStorage.getItem('profileData') || 'null');
 let allCharacters = JSON.parse(localStorage.getItem('allCharacters') || '[]');
 
+// ================= FIREBASE AUTH STUBS (INITIAL INTEGRATION) =================
+let firebaseReady = false;
+let firebaseUser = null;
+
+window.addEventListener('firebase-ready', () => {
+  firebaseReady = true;
+  console.log('[Auth] Firebase ready');
+  setupFirebaseAuthListeners();
+});
+
+function setupFirebaseAuthListeners(){
+  if(!window.FirebaseService){
+    console.warn('[Auth] FirebaseService missing');
+    return;
+  }
+  // Auth state listener
+  try {
+    window.FirebaseService.onAuthStateChanged(user => {
+      firebaseUser = user || null;
+      console.log('[Auth] state changed', user ? user.uid : 'signed-out');
+      handleAuthStateChange();
+    });
+  } catch(e){
+    console.error('[Auth] onAuthStateChanged failed', e);
+  }
+  // Wire buttons if present
+  queueAuthDomBinding();
+}
+
+function queueAuthDomBinding(){
+  // DOM might not yet have profile section if user loads another view first
+  requestAnimationFrame(()=>{
+    const btnCreate = document.getElementById('createProfileBtn');
+    const btnGoogle = document.getElementById('googleSignInBtn');
+    const btnLogout = document.getElementById('logoutBtn');
+    if(btnCreate && !btnCreate.dataset.firebaseBound){
+      btnCreate.dataset.firebaseBound = '1';
+      btnCreate.addEventListener('click', handleEmailPasswordAuth);
+    }
+    if(btnGoogle && !btnGoogle.dataset.firebaseBound){
+      btnGoogle.dataset.firebaseBound = '1';
+      btnGoogle.addEventListener('click', handleGoogleAuth);
+    }
+    if(btnLogout && !btnLogout.dataset.firebaseBound){
+      btnLogout.dataset.firebaseBound = '1';
+      btnLogout.addEventListener('click', handleLogoutFirebaseWrap);
+    }
+  });
+}
+
+function setAuthMessage(msg, isError){
+  const el = document.getElementById('authMessage');
+  if(!el) return;
+  el.textContent = msg || '';
+  el.style.color = isError ? 'var(--danger, #d33)' : 'var(--text-dim)';
+}
+
+async function handleEmailPasswordAuth(){
+  if(!firebaseReady){ setAuthMessage('Firebase not ready'); return; }
+  const name = document.getElementById('profileName').value.trim();
+  const email = document.getElementById('profileEmail').value.trim();
+  const password = document.getElementById('profilePassword').value;
+  if(!email || !password){ setAuthMessage('Email & password required', true); return; }
+  if(password.length < 6){ setAuthMessage('Password too short', true); return; }
+  setAuthMessage('Signing in…');
+  try {
+    // Try sign in; if fails with user-not-found create user.
+    await window.FirebaseService.signInEmail(email, password);
+  } catch(err){
+    if(err && err.code === 'auth/user-not-found'){
+      try {
+        await window.FirebaseService.createUserEmail(email, password);
+        setAuthMessage('Account created');
+      } catch(e2){
+        setAuthMessage(e2.message || 'Create failed', true);
+        return;
+      }
+    } else {
+      setAuthMessage(err.message || 'Sign-in failed', true);
+      return;
+    }
+  }
+  // Update display name if provided and different
+  try {
+    if(name && window.FirebaseService.auth.currentUser && !window.FirebaseService.auth.currentUser.displayName){
+      await window.FirebaseService.auth.currentUser.updateProfile({ displayName: name });
+    }
+  } catch(e){ console.warn('Display name update failed', e); }
+  setAuthMessage('Signed in');
+}
+
+async function handleGoogleAuth(){
+  if(!firebaseReady){ setAuthMessage('Firebase not ready'); return; }
+  setAuthMessage('Google sign-in…');
+  try {
+    await window.FirebaseService.signInWithGoogle();
+    setAuthMessage('Signed in');
+  } catch(e){
+    setAuthMessage(e.message || 'Google sign-in failed', true);
+  }
+}
+
+async function handleLogoutFirebaseWrap(e){
+  e.preventDefault();
+  if(!confirm('Sign out of cloud account? Data remains locally.')) return;
+  try { await window.FirebaseService.signOut(); } catch(e1){ console.warn('Sign out error', e1); }
+  // Keep local profileData for now; if we later link local profile strictly to auth UID we may clear.
+  logoutProfile();
+  setAuthMessage('Signed out');
+}
+
+function handleAuthStateChange(){
+  if(firebaseUser){
+    // Ensure local profileData exists or merge
+    if(!profileData){
+      profileData = {
+        id: 'firebase_' + firebaseUser.uid,
+        name: firebaseUser.displayName || document.getElementById('profileName')?.value.trim() || 'Player',
+        email: firebaseUser.email || '',
+        avatar: profileData?.avatar || '',
+        createdAt: new Date().toISOString(),
+        settings: { autoSave:true, darkMode:false, analytics:false },
+        lastSync: null,
+        firebaseUid: firebaseUser.uid
+      };
+      localStorage.setItem('profileData', JSON.stringify(profileData));
+    } else {
+      // annotate with UID
+      profileData.firebaseUid = firebaseUser.uid;
+      localStorage.setItem('profileData', JSON.stringify(profileData));
+    }
+    ensureUserDocAndMaybeMigrate();
+    buildProfile();
+    setAuthMessage('Signed in as ' + (profileData.name || 'Player'));
+  } else {
+    // Show auth section again
+    buildProfile();
+  }
+  queueAuthDomBinding();
+}
+// ================= END FIREBASE AUTH STUBS =================
+
+// ================= FIRESTORE DATA MODEL & SYNC =================
+let userDocRef = null;
+
+function getFirestore(){
+  if(!firebaseReady || !window.FirebaseService){
+    console.warn('[Firestore] Not ready');
+    return null;
+  }
+  return window.FirebaseService.db;
+}
+
+async function ensureUserDocAndMaybeMigrate(){
+  const db = getFirestore();
+  if(!db || !firebaseUser) return;
+  try {
+    userDocRef = db.collection('users').doc(firebaseUser.uid);
+    const snap = await userDocRef.get();
+    if(!snap.exists){
+      await userDocRef.set({
+        uid: firebaseUser.uid,
+        displayName: firebaseUser.displayName || profileData?.name || '',
+        email: firebaseUser.email || '',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        version: 1
+      });
+      console.log('[Firestore] Created user doc');
+    } else {
+      await userDocRef.update({ lastLogin: new Date().toISOString() });
+    }
+    // Check characters subcollection
+    const charsSnap = await userDocRef.collection('characters').limit(1).get();
+    const cloudEmpty = charsSnap.empty;
+    const localHasChars = allCharacters && allCharacters.length > 0;
+    const alreadyMigrated = !!profileData?.cloudMigrated;
+    if(cloudEmpty && localHasChars && !alreadyMigrated){
+      // Prompt user
+      if(confirm('Upload your existing local characters to the cloud?')){
+        await bulkUploadLocalCharacters();
+        profileData.cloudMigrated = true;
+        localStorage.setItem('profileData', JSON.stringify(profileData));
+        toast('Characters uploaded to cloud');
+      } else {
+        toast('You can upload later via Sync to Cloud');
+      }
+    } else {
+      // pull down cloud if it has data
+      if(!cloudEmpty){
+        await syncFromCloud();
+      }
+    }
+  } catch(e){
+    console.error('[Firestore] ensure user doc failed', e);
+    setAuthMessage('Cloud init failed: ' + (e.message||e), true);
+  }
+}
+
+async function bulkUploadLocalCharacters(){
+  if(!userDocRef) return;
+  const batchLimit = 400; // safety margin below 500 batch write limit
+  let batch = getFirestore().batch();
+  let count = 0;
+  for(const c of allCharacters){
+    const id = c.id || ('char_' + Date.now() + '_' + Math.random().toString(36).slice(2));
+    const ref = userDocRef.collection('characters').doc(id);
+    batch.set(ref, { ...c, id, lastModified: c.lastModified || new Date().toISOString() });
+    count++;
+    if(count % batchLimit === 0){
+      await batch.commit();
+      batch = getFirestore().batch();
+    }
+  }
+  await batch.commit();
+  profileData.lastSync = new Date().toISOString();
+  localStorage.setItem('profileData', JSON.stringify(profileData));
+  updateSyncStatus();
+}
+
+// Replace placeholder implementations below
+async function syncToCloud(){
+  if(!firebaseUser || !userDocRef){ toast('Not signed in'); return; }
+  try {
+    const collectionRef = userDocRef.collection('characters');
+    // Pull existing cloud characters to compare lastModified
+    const cloudSnap = await collectionRef.get();
+    const cloudMap = {};
+    cloudSnap.forEach(doc => { cloudMap[doc.id] = doc.data(); });
+    let writes = 0;
+    const batch = getFirestore().batch();
+    const now = new Date().toISOString();
+    for(const c of allCharacters){
+      const id = c.id || ('char_' + Date.now());
+      c.id = id;
+      const cloudChar = cloudMap[id];
+      if(!cloudChar || new Date(c.lastModified || 0) > new Date(cloudChar.lastModified || 0)){
+        const ref = collectionRef.doc(id);
+        batch.set(ref, { ...c, lastModified: c.lastModified || now });
+        writes++;
+      }
+    }
+    if(writes > 0){
+      await batch.commit();
+      profileData.lastSync = new Date().toISOString();
+      localStorage.setItem('profileData', JSON.stringify(profileData));
+      updateSyncStatus();
+      toast('Synced ' + writes + ' character' + (writes===1?'':'s') + ' to cloud');
+    } else {
+      toast('Cloud already up to date');
+    }
+  } catch(e){
+    console.error('[Sync] syncToCloud failed', e);
+    toast('Cloud sync failed: ' + (e.message||e));
+  }
+}
+
+async function syncFromCloud(){
+  if(!firebaseUser || !userDocRef){ toast('Not signed in'); return; }
+  try {
+    const collectionRef = userDocRef.collection('characters');
+    const cloudSnap = await collectionRef.get();
+    if(cloudSnap.empty){
+      toast('No cloud characters found');
+      return;
+    }
+    const localMap = Object.fromEntries(allCharacters.map(c => [c.id, c]));
+    let updated = 0, added = 0;
+    cloudSnap.forEach(doc => {
+      const data = doc.data();
+      const local = localMap[doc.id];
+      if(!local){
+        allCharacters.push(data);
+        added++;
+      } else {
+        // Conflict resolution: take newer lastModified
+        if(new Date(data.lastModified || 0) > new Date(local.lastModified || 0)){
+          const idx = allCharacters.findIndex(c => c.id === doc.id);
+            allCharacters[idx] = data;
+            updated++;
+        }
+      }
+    });
+    localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+    profileData.lastSync = new Date().toISOString();
+    localStorage.setItem('profileData', JSON.stringify(profileData));
+    updateSyncStatus();
+    renderCharactersList();
+    toast(`Pulled ${added} new, updated ${updated}`);
+  } catch(e){
+    console.error('[Sync] syncFromCloud failed', e);
+    toast('Cloud fetch failed: ' + (e.message||e));
+  }
+}
+// ================= END FIRESTORE DATA MODEL & SYNC =================
+
+// ================= REAL-TIME LISTENER & PER-CHAR UPDATES =================
+let charactersUnsub = null;
+
+function attachCharactersListener(){
+  if(!userDocRef) return;
+  if(charactersUnsub){ charactersUnsub(); charactersUnsub = null; }
+  charactersUnsub = userDocRef.collection('characters').onSnapshot(snap => {
+    const incoming = [];
+    snap.forEach(doc => incoming.push(doc.data()));
+    // Merge logic: prefer newest by lastModified
+    const localMap = Object.fromEntries(allCharacters.map(c => [c.id, c]));
+    let changed = false;
+    for(const inc of incoming){
+      const local = localMap[inc.id];
+      if(!local){
+        allCharacters.push(inc);
+        changed = true;
+      } else if(new Date(inc.lastModified||0) > new Date(local.lastModified||0)){
+        Object.assign(local, inc);
+        changed = true;
+      }
+    }
+    if(changed){
+      localStorage.setItem('allCharacters', JSON.stringify(allCharacters));
+      renderCharactersList();
+      updateSyncStatus('live');
+    }
+  }, err => console.error('[Realtime] listener error', err));
+}
+
+// Hook into auth change to start realtime
+const _origHandleAuthStateChange = handleAuthStateChange;
+handleAuthStateChange = function(){
+  _origHandleAuthStateChange();
+  if(firebaseUser && userDocRef){
+    attachCharactersListener();
+  } else if(charactersUnsub){
+    charactersUnsub();
+    charactersUnsub = null;
+  }
+};
+
+function updateSyncStatus(mode){
+  const status = document.getElementById('syncStatus');
+  if(!status || !profileData) return;
+  let badge = document.getElementById('syncStatusBadge');
+  if(!badge){
+    badge = document.createElement('span');
+    badge.id = 'syncStatusBadge';
+    badge.style.marginLeft = '6px';
+    badge.style.padding = '2px 6px';
+    badge.style.borderRadius = '12px';
+    badge.style.fontSize = '0.65rem';
+    badge.style.background = 'var(--accent-fade, #264)';
+    badge.style.color = 'var(--text, #fff)';
+    status.parentElement?.appendChild(badge);
+  }
+  const queued = (typeof pendingOps !== 'undefined') ? pendingOps.length : 0;
+  if(!profileData.lastSync){
+    status.textContent = 'Local only';
+    badge.textContent = queued ? `queued ${queued}` : 'offline';
+    badge.style.background = queued ? '#9a6f00' : '#555';
+  } else {
+    const tag = mode === 'live' ? 'live' : 'synced';
+    status.textContent = 'Last sync: ' + new Date(profileData.lastSync).toLocaleTimeString();
+    if(queued){
+      badge.textContent = `${tag} · queued ${queued}`;
+      badge.style.background = '#9a6f00';
+    } else {
+      badge.textContent = tag;
+      badge.style.background = mode==='live' ? '#1d6f2d' : '#2d486f';
+    }
+  }
+}
+
+// Wrap character save to also push delta if signed in
+const _origSaveCharacterToProfile = saveCharacterToProfile;
+saveCharacterToProfile = function(){
+  const before = getCurrentCharacterData();
+  _origSaveCharacterToProfile();
+  // After local save, push to cloud if available
+  if(firebaseUser && userDocRef){
+    const saved = allCharacters.find(c => c.id === before.id) || before;
+    pushSingleCharacter(saved).catch(e=>console.warn('Single push failed', e));
+  }
+};
+
+async function pushSingleCharacter(character){
+  if(!userDocRef) return;
+  const ref = userDocRef.collection('characters').doc(character.id);
+  const now = new Date().toISOString();
+  const payload = { ...character, lastModified: character.lastModified || now };
+  await ref.set(payload, { merge: true });
+  profileData.lastSync = now;
+  localStorage.setItem('profileData', JSON.stringify(profileData));
+  updateSyncStatus('live');
+}
+// ================= END REAL-TIME LISTENER & PER-CHAR UPDATES =================
+
+// ================= MOVES & ENTITIES CLOUD SYNC =================
+// Stored under users/{uid}/moves and users/{uid}/entities
+function attachMovesListener(){
+  if(!userDocRef) return;
+  if(movesListenerUnsub) movesListenerUnsub();
+  movesListenerUnsub = userDocRef.collection('moves').onSnapshot(snap => {
+    const incoming = [];
+    snap.forEach(d=> incoming.push(d.data()));
+    if(incoming.length){
+      // Simple replace strategy (later: per-move merge by updatedAt)
+      moves = incoming.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      localStorage.setItem('movesStore', JSON.stringify(moves));
+    }
+  }, err => console.error('[Realtime] moves listener', err));
+}
+
+function attachEntitiesListener(){
+  if(!userDocRef) return;
+  if(entitiesListenerUnsub) entitiesListenerUnsub();
+  entitiesListenerUnsub = userDocRef.collection('entities').onSnapshot(snap => {
+    const incoming = [];
+    snap.forEach(d=> incoming.push(d.data()));
+    if(incoming.length){
+      localStorage.setItem('entities', JSON.stringify(incoming));
+    }
+  }, err => console.error('[Realtime] entities listener', err));
+}
+
+async function pushAllMoves(){
+  if(!userDocRef) return;
+  const col = userDocRef.collection('moves');
+  // Fetch existing to avoid unnecessary writes
+  const snap = await col.get();
+  const existing = new Set();
+  snap.forEach(d=> existing.add(d.id));
+  const batch = getFirestore().batch();
+  let writes=0;
+  moves.forEach(m => {
+    const id = m.id || (m.name||('mv_'+Date.now())) + '_' + Math.random().toString(36).slice(2,8);
+    m.id = id;
+    if(!existing.has(id)){
+      batch.set(col.doc(id), { ...m, updatedAt: m.updatedAt || new Date().toISOString() });
+      writes++;
+    }
+  });
+  if(writes){ await batch.commit(); }
+  return writes;
+}
+
+async function pushAllEntities(){
+  if(!userDocRef) return;
+  const col = userDocRef.collection('entities');
+  const snap = await col.get();
+  const existing = new Set();
+  snap.forEach(d=> existing.add(d.id));
+  const localEntities = JSON.parse(localStorage.getItem('entities')||'[]');
+  const batch = getFirestore().batch();
+  let writes=0;
+  localEntities.forEach(e => {
+    const id = e.id || ('ent_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
+    e.id = id;
+    if(!existing.has(id)){
+      batch.set(col.doc(id), { ...e, updatedAt: e.updatedAt || new Date().toISOString() });
+      writes++;
+    }
+  });
+  if(writes){ await batch.commit(); }
+  return writes;
+}
+
+async function pushAllItems(){
+  if(!userDocRef) return;
+  const col = userDocRef.collection('items');
+  const snap = await col.get();
+  const existing = new Set();
+  snap.forEach(d=> existing.add(d.id));
+  const localItems = JSON.parse(localStorage.getItem('items')||'[]');
+  const batch = getFirestore().batch();
+  let writes=0;
+  localItems.forEach(i => {
+    const id = i.id || ('item_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
+    i.id = id;
+    if(!existing.has(id)){
+      batch.set(col.doc(id), { ...i, updatedAt: i.updatedAt || new Date().toISOString() });
+      writes++;
+    }
+  });
+  if(writes){ await batch.commit(); }
+  return writes;
+}
+
+async function pushAllEvents(){
+  if(!userDocRef) return;
+  const col = userDocRef.collection('events');
+  const snap = await col.get();
+  const existing = new Set();
+  snap.forEach(d=> existing.add(d.id));
+  const localEvents = JSON.parse(localStorage.getItem('events')||'[]');
+  const batch = getFirestore().batch();
+  let writes=0;
+  localEvents.forEach(ev => {
+    const id = ev.id || ('event_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
+    ev.id = id;
+    if(!existing.has(id)){
+      batch.set(col.doc(id), { ...ev, updatedAt: ev.updatedAt || new Date().toISOString() });
+      writes++;
+    }
+  });
+  if(writes){ await batch.commit(); }
+  return writes;
+}
+
+async function pushAllConditions(){
+  if(!userDocRef) return;
+  const col = userDocRef.collection('conditions');
+  const snap = await col.get();
+  const existing = new Set();
+  snap.forEach(d=> existing.add(d.id));
+  const localConditions = JSON.parse(localStorage.getItem('conditions')||'[]');
+  const batch = getFirestore().batch();
+  let writes=0;
+  localConditions.forEach(c => {
+    const id = c.id || ('cond_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
+    c.id = id;
+    if(!existing.has(id)){
+      batch.set(col.doc(id), { ...c, updatedAt: c.updatedAt || new Date().toISOString() });
+      writes++;
+    }
+  });
+  if(writes){ await batch.commit(); }
+  return writes;
+}
+
+async function syncMovesAndEntitiesToCloud(){
+  if(!firebaseUser){ return; }
+  try {
+    const m = await pushAllMoves();
+    const e = await pushAllEntities();
+    const i = await pushAllItems();
+    const ev = await pushAllEvents();
+    const c = await pushAllConditions();
+    const total = m+e+i+ev+c;
+    if(total>0) toast(`Uploaded ${m} moves, ${e} entities, ${i} items, ${ev} events, ${c} conditions`);
+  } catch(err){ console.error('Content push failed', err); }
+}
+
+async function initialMovesEntitiesMigrationIfNeeded(){
+  if(!userDocRef) return;
+  const movesSnap = await userDocRef.collection('moves').limit(1).get();
+  const entitiesSnap = await userDocRef.collection('entities').limit(1).get();
+  const itemsSnap = await userDocRef.collection('items').limit(1).get();
+  const eventsSnap = await userDocRef.collection('events').limit(1).get();
+  const conditionsSnap = await userDocRef.collection('conditions').limit(1).get();
+  
+  const localEntities = JSON.parse(localStorage.getItem('entities')||'[]');
+  const localItems = JSON.parse(localStorage.getItem('items')||'[]');
+  const localEvents = JSON.parse(localStorage.getItem('events')||'[]');
+  const localConditions = JSON.parse(localStorage.getItem('conditions')||'[]');
+  
+  const hasLocalMoves = moves && moves.length>0;
+  const hasLocalEntities = localEntities.length>0;
+  const hasLocalItems = localItems.length>0;
+  const hasLocalEvents = localEvents.length>0;
+  const hasLocalConditions = localConditions.length>0;
+  
+  const needsMigration = (
+    (!movesSnap.size && hasLocalMoves) || 
+    (!entitiesSnap.size && hasLocalEntities) ||
+    (!itemsSnap.size && hasLocalItems) ||
+    (!eventsSnap.size && hasLocalEvents) ||
+    (!conditionsSnap.size && hasLocalConditions)
+  );
+  
+  if(needsMigration){
+    if(confirm('Upload your local moves/items/events/conditions to the cloud?')){
+      await syncMovesAndEntitiesToCloud();
+    }
+  }
+  
+  attachMovesListener();
+  attachEntitiesListener();
+  attachItemsListener();
+  attachEventsListener();
+  attachConditionsListener();
+}
+
+// Chain into existing ensureUserDocAndMaybeMigrate
+const _origEnsureUserDocAndMaybeMigrate = ensureUserDocAndMaybeMigrate;
+ensureUserDocAndMaybeMigrate = async function(){
+  await _origEnsureUserDocAndMaybeMigrate();
+  await initialMovesEntitiesMigrationIfNeeded();
+};
+// ================= END MOVES & ENTITIES CLOUD SYNC =================
+
+// ================= OFFLINE QUEUE =================
+const OFFLINE_QUEUE_KEY = 'pendingCloudOps';
+let pendingOps = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+
+function queueCharacterOp(character){
+  pendingOps.push({
+    type: 'upsert-character',
+    id: character.id,
+    data: character,
+    queuedAt: Date.now()
+  });
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(pendingOps));
+  console.log('[OfflineQueue] queued op', character.id);
+}
+
+async function flushPendingOps(){
+  if(!firebaseUser || !userDocRef || !navigator.onLine) return;
+  if(pendingOps.length === 0) return;
+  console.log('[OfflineQueue] flushing', pendingOps.length, 'ops');
+  const db = getFirestore();
+  let batch = db.batch();
+  let count = 0;
+  for(const op of pendingOps){
+    if(op.type === 'upsert-character'){
+      const ref = userDocRef.collection('characters').doc(op.id);
+      batch.set(ref, { ...op.data, lastModified: op.data.lastModified || new Date().toISOString() }, { merge: true });
+      count++;
+      if(count % 400 === 0){
+        await batch.commit();
+        batch = db.batch();
+      }
+    }
+  }
+  await batch.commit();
+  pendingOps = [];
+  localStorage.removeItem(OFFLINE_QUEUE_KEY);
+  profileData.lastSync = new Date().toISOString();
+  localStorage.setItem('profileData', JSON.stringify(profileData));
+  updateSyncStatus();
+  toast('Offline changes synced');
+}
+
+// Network listeners
+window.addEventListener('online', () => flushPendingOps());
+window.addEventListener('firebase-ready', () => setTimeout(flushPendingOps, 500));
+
+// Override pushSingleCharacter to queue when offline
+const _origPushSingleCharacter = pushSingleCharacter;
+pushSingleCharacter = async function(character){
+  if(!navigator.onLine || !firebaseUser){
+    queueCharacterOp(character);
+    updateSyncStatus();
+    return;
+  }
+  try {
+    await _origPushSingleCharacter(character);
+  } catch(e){
+    console.warn('[OfflineQueue] push failed, queued instead', e);
+    queueCharacterOp(character);
+  }
+};
+// ================= END OFFLINE QUEUE =================
+
 // Migrate existing character to profile system if needed
 function migrateExistingCharacter() {
   if (profileData && allCharacters.length === 0) {
@@ -4290,15 +4968,7 @@ async function importAllData(e) {
   e.target.value = '';
 }
 
-function syncToCloud() {
-  toast('Cloud sync feature coming soon!');
-  // Placeholder for future cloud integration
-}
-
-function syncFromCloud() {
-  toast('Cloud sync feature coming soon!');
-  // Placeholder for future cloud integration
-}
+// (Original placeholders replaced by implemented functions above)
 
 function updateSetting(key, value) {
   profileData.settings[key] = value;
