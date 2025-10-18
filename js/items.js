@@ -12,44 +12,66 @@
         {
           id: Date.now() + '_1',
           name: 'Flame Tongue Sword',
-          type: 'weapon',
           description: 'A magical sword that ignites with flames when activated, dealing extra fire damage.',
-          tags: ['magic', 'weapon', 'fire', 'rare'],
-          value: 5000,
-          weight: 3,
-          rarity: 'rare',
+          tags: ['!weapon', 'magic', 'fire', 'rare'],
           image: '',
           created: new Date().toISOString()
         },
         {
           id: Date.now() + '_2',
           name: 'Potion of Greater Healing',
-          type: 'potion',
           description: 'A potent healing potion that restores 4d4+4 hit points when consumed.',
-          tags: ['healing', 'consumable', 'uncommon'],
-          value: 150,
-          weight: 0.5,
-          rarity: 'uncommon',
+          tags: ['!potion', 'healing', '!consumable', 'uncommon'],
           image: '',
           created: new Date().toISOString()
         },
         {
           id: Date.now() + '_3',
           name: 'Studded Leather Armor +1',
-          type: 'armor',
           description: 'Enhanced leather armor reinforced with metal studs, providing AC 12 + Dex modifier + 1.',
-          tags: ['armor', 'protection', 'light', 'magic'],
-          value: 1500,
-          weight: 13,
-          rarity: 'uncommon',
+          tags: ['!armor', 'protection', 'light', 'magic'],
           image: '',
           created: new Date().toISOString()
         }
       ];
       saveItems();
     }
+    buildTagFilters();
     bindEvents();
     renderItems();
+  }
+
+  // Build dynamic tag filter checkboxes
+  function buildTagFilters() {
+    const tagFiltersContainer = document.getElementById('itemTagFilters');
+    if (!tagFiltersContainer) return;
+
+    // Collect all unique tags from all items
+    const allTags = new Set();
+    items.forEach(item => {
+      item.tags.forEach(tag => allTags.add(tag));
+    });
+
+    // Sort tags alphabetically
+    const sortedTags = Array.from(allTags).sort();
+
+    // Build checkboxes
+    tagFiltersContainer.innerHTML = '';
+    sortedTags.forEach(tag => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.className = 'tag-filter-checkbox';
+      checkbox.dataset.tag = tag;
+      checkbox.addEventListener('change', renderItems);
+      
+      const displayText = tag.startsWith('!') ? tag.substring(1).toUpperCase() : tag;
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(' ' + displayText));
+      
+      tagFiltersContainer.appendChild(label);
+    });
   }
 
   // Save items to localStorage
@@ -76,13 +98,6 @@
         renderItems();
       });
     }
-
-    ['showWeaponsItems', 'showArmorItems', 'showPotionsItems', 'showMagicItems', 'showToolsItems', 'showOtherItems'].forEach(id => {
-      const checkbox = document.getElementById(id);
-      if (checkbox) {
-        checkbox.addEventListener('change', renderItems);
-      }
-    });
 
     const sortSelect = document.getElementById('sortItemsSelect');
     if (sortSelect) {
@@ -124,40 +139,32 @@
     if (!grid) return;
 
     const searchTerm = document.getElementById('itemSearch')?.value.toLowerCase() || '';
-    const showWeapons = document.getElementById('showWeaponsItems')?.checked ?? true;
-    const showArmor = document.getElementById('showArmorItems')?.checked ?? true;
-    const showPotions = document.getElementById('showPotionsItems')?.checked ?? true;
-    const showMagic = document.getElementById('showMagicItems')?.checked ?? true;
-    const showTools = document.getElementById('showToolsItems')?.checked ?? true;
-    const showOther = document.getElementById('showOtherItems')?.checked ?? true;
     const sortBy = document.getElementById('sortItemsSelect')?.value || 'name';
 
+    // Get selected tags from checkboxes
+    const selectedTags = new Set();
+    document.querySelectorAll('.tag-filter-checkbox:checked').forEach(checkbox => {
+      selectedTags.add(checkbox.dataset.tag);
+    });
+
     let filteredItems = items.filter(item => {
+      // Search filter
       if (searchTerm) {
-        const searchableText = `${item.name} ${item.type} ${item.description} ${item.tags.join(' ')}`.toLowerCase();
+        const searchableText = `${item.name} ${item.description} ${item.tags.join(' ')}`.toLowerCase();
         if (!searchableText.includes(searchTerm)) return false;
       }
 
-      const typeMap = {
-        weapon: showWeapons,
-        armor: showArmor,
-        potion: showPotions,
-        scroll: showMagic,
-        wondrous: showMagic,
-        tool: showTools,
-        treasure: showOther,
-        other: showOther
-      };
+      // Tag filter - item must have at least one selected tag
+      if (selectedTags.size > 0) {
+        const hasSelectedTag = item.tags.some(tag => selectedTags.has(tag));
+        if (!hasSelectedTag) return false;
+      }
 
-      return typeMap[item.type] ?? showOther;
+      return true;
     });
 
     filteredItems.sort((a, b) => {
       switch (sortBy) {
-        case 'type':
-          return a.type.localeCompare(b.type);
-        case 'value':
-          return (b.value || 0) - (a.value || 0);
         case 'created':
           return new Date(b.created) - new Date(a.created);
         case 'name':
@@ -189,22 +196,25 @@
     card.className = 'entity-card';
     card.addEventListener('click', () => openItemModal(item));
 
-    const tags = item.tags.map(tag => `<span class="entity-tag">${tag}</span>`).join('');
+    // Separate special tags (starting with !) from regular tags
+    const specialTags = item.tags.filter(tag => tag.startsWith('!'));
+    const regularTags = item.tags.filter(tag => !tag.startsWith('!'));
+    
+    const regularTagsHtml = regularTags.map(tag => `<span class="entity-tag">${tag}</span>`).join('');
+    const specialBadgesHtml = specialTags.map(tag => {
+      const badgeText = tag.substring(1).toUpperCase(); // Remove ! and uppercase
+      return `<span class="entity-type-badge">${badgeText}</span>`;
+    }).join('');
     
     card.innerHTML = `
+      ${specialBadgesHtml}
       <div class="entity-card-header">
         <h3 class="entity-name">${item.name}</h3>
-        <span class="entity-type">${item.type}</span>
       </div>
       
       <p class="entity-description">${item.description || 'No description available.'}</p>
       
-      <div class="entity-tags">${tags}</div>
-      
-      <div class="entity-meta">
-        <span class="entity-value">${item.value ? item.value + ' gp' : 'No value'}</span>
-        <span class="entity-rarity ${item.rarity}">${item.rarity}</span>
-      </div>
+      <div class="entity-tags">${regularTagsHtml}</div>
     `;
 
     return card;
@@ -240,12 +250,8 @@
 
   function populateForm(item) {
     document.getElementById('itemName').value = item.name || '';
-    document.getElementById('itemType').value = item.type || '';
     document.getElementById('itemDescription').value = item.description || '';
     document.getElementById('itemTags').value = item.tags ? item.tags.join(', ') : '';
-    document.getElementById('itemValue').value = item.value || '';
-    document.getElementById('itemWeight').value = item.weight || '';
-    document.getElementById('itemRarity').value = item.rarity || 'common';
     document.getElementById('itemImage').value = item.image || '';
   }
 
@@ -258,17 +264,13 @@
     
     const formData = {
       name: document.getElementById('itemName').value.trim(),
-      type: document.getElementById('itemType').value,
       description: document.getElementById('itemDescription').value.trim(),
       tags: document.getElementById('itemTags').value.split(',').map(tag => tag.trim()).filter(tag => tag),
-      value: parseFloat(document.getElementById('itemValue').value) || 0,
-      weight: parseFloat(document.getElementById('itemWeight').value) || 0,
-      rarity: document.getElementById('itemRarity').value,
       image: document.getElementById('itemImage').value.trim()
     };
 
-    if (!formData.name || !formData.type) {
-      alert('Please fill in all required fields');
+    if (!formData.name) {
+      alert('Please fill in the name field');
       return;
     }
 
@@ -287,6 +289,7 @@
     }
 
     saveItems();
+    buildTagFilters();
     renderItems();
     closeItemModal();
     
@@ -310,6 +313,7 @@
     const itemId = currentItem.id;
     items = items.filter(item => item.id !== currentItem.id);
     saveItems();
+    buildTagFilters();
     renderItems();
     closeItemModal();
     

@@ -24,6 +24,8 @@
         <button class="nav-btn" data-view="events">Events</button>
         <button class="nav-btn" data-view="conditions">Conditions</button>
         <button class="nav-btn" data-view="entities">Entities</button>
+        <button class="nav-btn" data-view="items-entities-info">Items & Entities</button>
+        <button class="nav-btn" data-view="character-database">Character Database</button>
         <button class="nav-btn" data-view="board">Kanban</button>
         <button class="nav-btn" data-view="table">Table</button>
         <button class="nav-btn" data-view="character">Character</button>
@@ -169,25 +171,18 @@
         
         <div class="entities-filters">
           <div class="search-section">
-            <input type="search" id="itemSearch" placeholder="Search items by name, type, or tags..." />
+            <input type="search" id="itemSearch" placeholder="Search items by name or tags..." />
             <button id="clearItemSearchBtn" class="mini-btn">Clear</button>
           </div>
           
-          <div class="filter-section">
-            <label><input type="checkbox" id="showWeaponsItems" checked /> Weapons</label>
-            <label><input type="checkbox" id="showArmorItems" checked /> Armor</label>
-            <label><input type="checkbox" id="showPotionsItems" checked /> Potions</label>
-            <label><input type="checkbox" id="showMagicItems" checked /> Magic Items</label>
-            <label><input type="checkbox" id="showToolsItems" checked /> Tools</label>
-            <label><input type="checkbox" id="showOtherItems" checked /> Other</label>
+          <div class="filter-section" id="itemTagFilters">
+            <!-- Tag filters will be dynamically generated here -->
           </div>
           
           <div class="sort-section">
             <label>Sort by:
               <select id="sortItemsSelect">
                 <option value="name">Name</option>
-                <option value="type">Type</option>
-                <option value="value">Value</option>
                 <option value="created">Date Added</option>
               </select>
             </label>
@@ -206,24 +201,9 @@
             <div class="modal-body">
               <form id="itemForm">
                 <div class="form-grid">
-                  <div class="form-group">
+                  <div class="form-group full-width">
                     <label for="itemName">Name *</label>
                     <input type="text" id="itemName" required />
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="itemType">Type *</label>
-                    <select id="itemType" required>
-                      <option value="">Select Type</option>
-                      <option value="weapon">Weapon</option>
-                      <option value="armor">Armor</option>
-                      <option value="potion">Potion</option>
-                      <option value="scroll">Scroll</option>
-                      <option value="wondrous">Wondrous Item</option>
-                      <option value="tool">Tool</option>
-                      <option value="treasure">Treasure</option>
-                      <option value="other">Other</option>
-                    </select>
                   </div>
                   
                   <div class="form-group full-width">
@@ -231,35 +211,13 @@
                     <textarea id="itemDescription" rows="4" placeholder="Describe the item's appearance, properties, and effects..."></textarea>
                   </div>
                   
-                  <div class="form-group">
+                  <div class="form-group full-width">
                     <label for="itemTags">Tags</label>
                     <input type="text" id="itemTags" placeholder="magic, rare, combat (comma separated)" />
                   </div>
                   
-                  <div class="form-group">
-                    <label for="itemValue">Value (gp)</label>
-                    <input type="number" id="itemValue" min="0" step="0.01" />
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="itemWeight">Weight (lbs)</label>
-                    <input type="number" id="itemWeight" min="0" step="0.1" />
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="itemRarity">Rarity</label>
-                    <select id="itemRarity">
-                      <option value="common">Common</option>
-                      <option value="uncommon">Uncommon</option>
-                      <option value="rare">Rare</option>
-                      <option value="very-rare">Very Rare</option>
-                      <option value="legendary">Legendary</option>
-                      <option value="artifact">Artifact</option>
-                    </select>
-                  </div>
-                  
                   <div class="form-group full-width">
-                    <label for="itemImage">Image URL</label>
+                    <label for="itemImage">Img link</label>
                     <input type="url" id="itemImage" placeholder="https://example.com/image.jpg" />
                   </div>
                 </div>
@@ -778,6 +736,78 @@
         <p>Use search, filters, board view, and quick export. Data never leaves your browser.</p>
       </section>
 
+      <!-- Items & Entities Information View -->
+      <section id="view-items-entities-info" class="view">
+        <div class="info-header">
+          <h1>Items & Entities Information</h1>
+          <p>Data from Google Spreadsheet - "Items" sheet</p>
+          <button id="refreshInfoBtn" class="secondary-btn">🔄 Refresh Data</button>
+        </div>
+        
+        <div class="info-filters">
+          <input type="search" id="infoSearch" placeholder="Search by name..." />
+          <select id="infoSortSelect">
+            <option value="name">Sort by Name</option>
+            <option value="original">Original Order</option>
+          </select>
+        </div>
+
+        <div class="info-table-container">
+          <table id="infoTable" class="data-table">
+            <thead id="infoTableHead"></thead>
+            <tbody id="infoTableBody"></tbody>
+          </table>
+          <div id="infoEmptyState" class="empty-state" style="display: none;">
+            <h3>No data available</h3>
+            <p>Make sure your Google Spreadsheet has an "Items" sheet and is properly configured.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Character Database View -->
+      <section id="view-character-database" class="view">
+        <div class="char-db-header">
+          <div>
+            <h1>Character Database</h1>
+            <p>Data from Google Spreadsheet - "PJ" sheet</p>
+          </div>
+          <button id="refreshCharDbBtn" class="secondary-btn">🔄 Refresh Data</button>
+        </div>
+        
+        <div class="char-db-filters">
+          <input type="search" id="charDbSearch" placeholder="Search characters..." />
+          
+          <div class="filter-group">
+            <label>Filter by Tags:</label>
+            <div id="charDbTagFilters" class="filter-checkboxes"></div>
+          </div>
+          
+          <div class="filter-group">
+            <label>Filter by Moves:</label>
+            <div id="charDbMoveFilters" class="filter-checkboxes"></div>
+          </div>
+          
+          <div class="sort-group">
+            <label>Sort by:</label>
+            <select id="charDbSortSelect">
+              <option value="original">Original Order</option>
+              <option value="name">Name</option>
+              <option value="hp">HP</option>
+              <option value="vel">VEL</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="char-db-grid" id="charDbGrid">
+          <!-- Character cards will be dynamically inserted here -->
+        </div>
+        
+        <div id="charDbEmptyState" class="empty-state" style="display: none;">
+          <h3>No characters found</h3>
+          <p>Make sure your Google Spreadsheet has a "PJ" sheet and is properly configured.</p>
+        </div>
+      </section>
+
       <!-- Profile View -->
       <section id="view-profile" class="view">
         <div class="profile-container">
@@ -904,306 +934,105 @@
 
       <footer class="footer">Live sheet sync • <span id="recordCount">0</span> rows • <span id="lastUpdated">—</span></footer>
   <section id="view-character" class="view">
-        <div class="char-page">
-          <div class="char-header">
-            <div class="char-img-wrap" id="charImgWrap" title="Click to set image">
-              <img id="charImg" alt="Character" class="hidden" />
-              <div class="char-img-placeholder" id="charImgPh">IMG</div>
-              <input type="file" id="charImgInput" accept="image/*" hidden />
-            </div>
-            <div class="char-main-info">
-              <input id="charName" class="char-name" placeholder="Character Name" />
-              <div class="char-basic-info">
-                <input id="charClass" placeholder="Class" />
-                <input id="charLevel" type="number" placeholder="Level" min="1" max="20" value="1" />
-                <input id="charRace" placeholder="Race" />
-                <input id="charBackground" placeholder="Background" />
-              </div>
-            </div>
-            <div class="char-actions">
-              <button id="saveCharacterBtn" class="accent-btn">Save Character</button>
-              <button id="saveToProfileBtn" class="mini-btn">Save to Profile</button>
-              <button id="exportCharacterBtn" class="mini-btn">Export JSON</button>
-            </div>
+    <div class="char-edit-page">
+      
+      <!-- Top Row: IMG + Name -->
+      <div class="char-top-row">
+        <div class="char-img-container">
+          <div class="char-img-box" id="charImgBox">
+            <img id="charImg" class="hidden" alt="Character" />
+            <div id="charImgPlaceholder">IMG</div>
           </div>
+          <input type="file" id="charImgInput" accept="image/*" hidden />
+        </div>
+        
+        <div class="char-name-container">
+          <input type="text" id="charName" placeholder="Name" class="char-name-input" />
+        </div>
+      </div>
 
-          <!-- Character Mode Switcher -->
-          <div class="char-mode-switcher">
-            <div class="mode-tabs">
-              <button id="standardModeBtn" class="mode-tab active" data-mode="standard">Standard D&D</button>
-              <button id="augurioModeBtn" class="mode-tab" data-mode="augurio">Augurio Mode</button>
-            </div>
+      <!-- Description -->
+      <div class="char-description-section">
+        <textarea id="charDescription" placeholder="Description" rows="4"></textarea>
+      </div>
+
+      <!-- Stats Section -->
+      <div class="char-stats-edit-section">
+        <div class="stats-section-label">List of values: Yes, the same list of values from the excel it will be fine. Order like on large, not a column, due to it take a too much from the space</div>
+        <div class="stats-edit-grid" id="statsEditGrid">
+          <div class="stat-input-box"><label>ATF</label><input type="number" id="edit-atf" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>ATM</label><input type="number" id="edit-atm" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>DEF</label><input type="number" id="edit-def" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>DEM</label><input type="number" id="edit-dem" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>PAS</label><input type="number" id="edit-pas" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>FZA</label><input type="number" id="edit-fza" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>CON</label><input type="number" id="edit-con" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>INT</label><input type="number" id="edit-int" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>SAG</label><input type="number" id="edit-sag" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>ETK</label><input type="number" id="edit-etk" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box"><label>EAC</label><input type="number" id="edit-eac" value="0" min="0" max="999" /></div>
+          <div class="stat-input-box">...</div>
+        </div>
+      </div>
+
+      <!-- Inventory Section -->
+      <div class="char-inventory-section">
+        <h3>Inventory</h3>
+        <div class="inventory-grid">
+          <div class="inventory-column">
+            <div class="inv-col-header">Hands</div>
+            <textarea id="invHands" placeholder="text" rows="6"></textarea>
           </div>
-
-          <!-- Standard D&D Abilities -->
-          <div id="standardAbilities" class="char-abilities mode-section">
-            <h3>Ability Scores</h3>
-            <div class="abilities-grid">
-              <div class="ability-score">
-                <label>STR</label>
-                <input id="charStr" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="strMod">+0</div>
-              </div>
-              <div class="ability-score">
-                <label>DEX</label>
-                <input id="charDex" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="dexMod">+0</div>
-              </div>
-              <div class="ability-score">
-                <label>CON</label>
-                <input id="charCon" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="conMod">+0</div>
-              </div>
-              <div class="ability-score">
-                <label>INT</label>
-                <input id="charInt" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="intMod">+0</div>
-              </div>
-              <div class="ability-score">
-                <label>WIS</label>
-                <input id="charWis" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="wisMod">+0</div>
-              </div>
-              <div class="ability-score">
-                <label>CHA</label>
-                <input id="charCha" type="number" min="1" max="30" value="10" />
-                <div class="modifier" id="chaMod">+0</div>
-              </div>
-            </div>
+          <div class="inventory-column">
+            <div class="inv-col-header">Equip</div>
+            <textarea id="invEquip" placeholder="text" rows="6"></textarea>
           </div>
-
-          <!-- Augurio Mode Layout -->
-          <div id="augurioAbilities" class="char-abilities mode-section hidden">
-            <div class="augurio-layout">
-              <!-- Stats Grid Section -->
-              <div class="augurio-stats-section">
-                <div class="stats-grid">
-                  <!-- Physical Stats Column -->
-                  <div class="stats-column physical-stats">
-                    <div class="column-label">Physical</div>
-                    
-                    <div class="stat-box">
-                      <label>ATF</label>
-                      <input type="number" id="augurio-atf" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>ATM</label>
-                      <input type="number" id="augurio-atm" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>DEF</label>
-                      <input type="number" id="augurio-def" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>DEM</label>
-                      <input type="number" id="augurio-dem" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>PAS</label>
-                      <input type="number" id="augurio-pas" min="0" max="999" value="0" />
-                    </div>
-                    
-                    <div class="stat-box">
-                      <label>VEL</label>
-                      <input type="number" id="augurio-vel" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>VID</label>
-                      <input type="number" id="augurio-vid" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>PRE</label>
-                      <input type="number" id="augurio-pre" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>EVA</label>
-                      <input type="number" id="augurio-eva" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>SUE</label>
-                      <input type="number" id="augurio-sue" min="0" max="999" value="0" />
-                    </div>
-                  </div>
-
-                  <!-- Stats Column -->
-                  <div class="stats-column main-stats">
-                    <div class="column-label">Stats</div>
-                    
-                    <div class="stat-box">
-                      <label>FZA</label>
-                      <input type="number" id="augurio-fza" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>CON</label>
-                      <input type="number" id="augurio-con" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>INT</label>
-                      <input type="number" id="augurio-int" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>SAG</label>
-                      <input type="number" id="augurio-sag" min="0" max="999" value="0" />
-                    </div>
-                    
-                    <div class="stat-box">
-                      <label>AGI</label>
-                      <input type="number" id="augurio-agi" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>CRM</label>
-                      <input type="number" id="augurio-crm" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>DST</label>
-                      <input type="number" id="augurio-dst" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>VIT</label>
-                      <input type="number" id="augurio-vit" min="0" max="999" value="0" />
-                    </div>
-                  </div>
-
-                  <!-- Stamina Column -->
-                  <div class="stats-column stamina-stats">
-                    <div class="column-label">Stamina</div>
-                    
-                    <div class="stat-box">
-                      <label>ETK</label>
-                      <input type="number" id="augurio-etk" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>EAC</label>
-                      <input type="number" id="augurio-eac" min="0" max="999" value="0" />
-                    </div>
-                    
-                    <div class="stat-box">
-                      <label>EST</label>
-                      <input type="number" id="augurio-est" min="0" max="999" value="0" />
-                    </div>
-                    <div class="stat-box">
-                      <label>ESP</label>
-                      <input type="number" id="augurio-esp" min="0" max="999" value="0" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Inventory Section -->
-              <div class="augurio-inventory-section">
-                <h3>Inventory</h3>
-                <div class="inventory-grid">
-                  <div class="inventory-item">
-                    <label>Hands</label>
-                    <textarea id="augurioHands" placeholder="Items in hands"></textarea>
-                  </div>
-                  <div class="inventory-item">
-                    <label>Equip</label>
-                    <textarea id="augurioEquip" placeholder="Equipped items"></textarea>
-                  </div>
-                  <div class="inventory-item">
-                    <label>Store</label>
-                    <textarea id="augurioStore" placeholder="Stored items"></textarea>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Moves Section -->
-              <div class="augurio-moves-section">
-                <div class="moves-header">
-                  <h3>Moves</h3>
-                  <div class="moves-controls">
-                    <input type="text" id="augurioMoveSearch" placeholder="Search moves..." />
-                    <button type="button" id="augurioMoveOrderBtn">Order</button>
-                  </div>
-                </div>
-                
-                <div class="moves-content">
-                  <div class="move-form">
-                    <input type="text" id="augurioMoveName" placeholder="Move name" />
-                    <textarea id="augurioMoveDescription" placeholder="Move description" rows="3"></textarea>
-                    <input type="text" id="augurioMoveTags" placeholder="Move tags" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="char-combat-stats">
-            <h3>Combat Stats</h3>
-            <div class="combat-grid">
-              <div class="stat-block">
-                <label>Armor Class</label>
-                <input id="charAC" type="number" min="1" max="30" value="10" />
-              </div>
-              <div class="stat-block">
-                <label>Hit Points</label>
-                <input id="charHP" type="number" min="1" max="999" />
-              </div>
-              <div class="stat-block">
-                <label>Max HP</label>
-                <input id="charMaxHP" type="number" min="1" max="999" />
-              </div>
-              <div class="stat-block">
-                <label>Speed</label>
-                <input id="charSpeed" placeholder="30 ft" />
-              </div>
-              <div class="stat-block">
-                <label>Proficiency Bonus</label>
-                <input id="charProfBonus" type="number" value="2" readonly />
-              </div>
-            </div>
-          </div>
-
-          <div class="char-skills">
-            <h3>Skills & Saves</h3>
-            <div class="skills-grid">
-              <div class="skill-section">
-                <h4>Saving Throws</h4>
-                <label><input type="checkbox" id="strSaveProf"> Strength <span id="strSave">+0</span></label>
-                <label><input type="checkbox" id="dexSaveProf"> Dexterity <span id="dexSave">+0</span></label>
-                <label><input type="checkbox" id="conSaveProf"> Constitution <span id="conSave">+0</span></label>
-                <label><input type="checkbox" id="intSaveProf"> Intelligence <span id="intSave">+0</span></label>
-                <label><input type="checkbox" id="wisSaveProf"> Wisdom <span id="wisSave">+0</span></label>
-                <label><input type="checkbox" id="chaSaveProf"> Charisma <span id="chaSave">+0</span></label>
-              </div>
-              <div class="skill-section">
-                <h4>Skills</h4>
-                <div class="skills-list" id="skillsList"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="char-features">
-            <h3>Features & Traits</h3>
-            <textarea id="charFeatures" placeholder="Class features, racial traits, background features, etc."></textarea>
-          </div>
-
-          <div class="char-inv card-panel">
-            <h3>Equipment & Inventory</h3>
-            <div class="inv-sections">
-              <div class="inv-block"><label>Weapons</label><textarea id="invWeapons" placeholder="Longsword, Shortbow, etc."></textarea></div>
-              <div class="inv-block"><label>Armor & Shield</label><textarea id="invArmor" placeholder="Chain mail, Shield, etc."></textarea></div>
-              <div class="inv-block wide"><label>Other Equipment</label><textarea id="invOther" placeholder="Backpack, rope, torches, etc."></textarea></div>
-            </div>
-          </div>
-
-          <div class="char-moves card-panel">
-            <div class="char-moves-head">
-              <h3>Spells & Abilities</h3>
-              <input type="search" id="charMoveFilter" placeholder="Filter assigned" />
-              <input type="search" id="charMoveAdd" placeholder="Add spell/ability by name" />
-            </div>
-            <div id="charMoveSuggestions" class="char-suggestions hidden"></div>
-            <div id="charMovesList" class="char-move-list"></div>
-          </div>
-
-          <div class="char-backstory">
-            <h3>Character Backstory</h3>
-            <textarea id="charBackstory" placeholder="Character's background story, personality traits, ideals, bonds, and flaws..."></textarea>
+          <div class="inventory-column">
+            <div class="inv-col-header">Store</div>
+            <textarea id="invStore" placeholder="text" rows="6"></textarea>
           </div>
         </div>
-      </section>
+      </div>
+
+      <!-- Moves Section -->
+      <div class="char-moves-section">
+        <div class="moves-header">
+          <h3>Moves</h3>
+          <div class="moves-controls">
+            <input type="search" id="movesSearchBar" placeholder="Search bar" />
+            <button id="movesOrderBtn" type="button">button for order</button>
+          </div>
+        </div>
+        
+        <div class="moves-list" id="movesList">
+          <!-- Move Card 1 -->
+          <div class="move-card">
+            <input type="text" class="move-name" placeholder="Move name" />
+            <div class="move-content">
+              <textarea class="move-desc" placeholder="Move description" rows="3"></textarea>
+              <textarea class="move-tags" placeholder="Move tags" rows="2"></textarea>
+            </div>
+          </div>
+          
+          <!-- Move Card 2 -->
+          <div class="move-card">
+            <input type="text" class="move-name" placeholder="Move name" />
+            <div class="move-content">
+              <textarea class="move-desc" placeholder="Move description" rows="3"></textarea>
+              <textarea class="move-tags" placeholder="Move tags" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Save Actions -->
+      <div class="char-save-actions">
+        <button id="saveCharBtn" class="accent-btn">Save Character</button>
+        <button id="exportCharBtn" class="secondary-btn">Export</button>
+      </div>
+      
+    </div>
+  </section>
     </main>
   </div>
   <button id="helpFab" class="help-fab" title="Help">?</button>
@@ -1315,6 +1144,8 @@
   <script src="js/items.js"></script>
   <script src="js/events.js"></script>
   <script src="js/conditions.js"></script>
+  <script src="js/items-entities-info.js"></script>
+  <script src="js/character-database.js"></script>
   <script src="js/excel-integration.js"></script>
   <script>if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }</script>
 </body>
