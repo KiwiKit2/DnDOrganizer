@@ -1041,10 +1041,16 @@
       <header><h2>Sheet Source</h2><button id="closeSheetModal" class="close-btn" aria-label="Close">×</button></header>
       <p>Paste the Published CSV URL from Google Sheets. (File → Share → Publish to web → CSV)</p>
       <textarea id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"></textarea>
+      <div style="margin-top:0.5rem">
+        <small>Alternative: paste CSV content directly below (File → Download → Comma-separated values) and click &quot;Paste CSV → Import Moves&quot;.</small>
+      </div>
+      <textarea id="sheetCsvPaste" placeholder="Paste CSV content here..." style="height:8rem;margin-top:0.5rem"></textarea>
       <div class="actions">
         <button id="saveSheetUrl" class="accent-btn">Save & Reload</button>
         <button id="clearSheetUrl" class="mini-btn">Clear Override</button>
   <button id="modalUploadBtn" class="mini-btn" type="button">Upload Local File…</button>
+        <button id="importSheetToMoves" class="mini-btn" type="button">Import sheet → Moves</button>
+        <button id="pasteCsvToMoves" class="mini-btn" type="button">Paste CSV → Import Moves</button>
       </div>
       <small>Stored locally in your browser. Share the link hash like <code>#sheet=&lt;url&gt;</code> to preload.</small>
     </div>

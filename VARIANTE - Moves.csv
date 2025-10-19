@@ -1,0 +1,302 @@
+Nombre,Descripción,Tags,IMG
+Pogo,"Equipa ⏱️a ""Pogo"". Puedes lanzarlo ⏱️en un rango de hasta 4, pudiendo rebotar en las paredes.
+Luego, crea un charco de ácido de 5x5 por 3 ⌛. Estar sobre el área quita -25 💔 en los turnos 1 y 2, y 100 💔 en el ⌛ 3.
+Luego de perder a Pogo, se recarga luego de un descanso corto.
+100 ACT 🔋.","area, 1 mano",
+Vértigo,"Equipa ⏱️ a ""Vértigo"". Puedes lanzarlo ⏱️ por los aires en un rango de hasta 4 de rango, pudiendo rebotar en las paredes y en el piso. 
+Luego, este dispara baba a los enemigos en su campo de visión aplicando ""ceguera"" por 2 ⌛, y luego es destruido.
+Se puede hacer una tirada de DES de 5 para responder hacia Vértigo mientras está en el aire.
+Los enemigos pueden intentar reaccionar y hacerle daño con una tirada de Velocidad de reacción superior a 50.
+Vértigo tiene 10 ♥️ y 50 EVA.
+Si es destruido, se convierte en un orbe que solo puede tocar el usuario y ser recogido por el.
+Puede volver a usarse luego de 10 ⌛ si es recogido.
+Luego de perder a vértigo, se recarga luego de un descanso corto.
+100 ACT 🔋","debuff, ceguera, 1 mano",
+Carnalito,"Equipa ⏱️ a ""Carnalito"". Puedes colocarlo ⏱️ en en una casilla adyacente y puede enviarlo a:
+* Acción: Realiza la acción indicada en el punto señalado.
+* Ataque: Si en el recorrido ve a un objetivo, lo seguirá indefinidamente hasta estar a 2 ⬛ de él e infligirle ""aturdir"" por 2 ⌛.
+Carnalito tiene 80 ♥️, 6 👟 y 60 EVA.
+Al concluir su orden enviada es destruido.
+Si es destruido, se convierte en un orbe que solo puede tocar el usuario y ser recogido por él. 
+Luego de recoger a Carnalito, puede volver a usarse luego de 10 ⌛.
+60 ACT🔋","minion, 1 mano",
+Paliza,"Equipa ⏱️ a “Paliza”. Puedes colocarlo ⏱️ en una casilla adyacente y controlarlo como si fuera un personaje durante 2 ⌛. Mientras se controla, el usuario no puede realizar otras acciones y su punto de vista cambia al de “Paliza”.
+Paliza tiene 200 ♥️ y 8 👟. Puede elegir explotar en cualquier momento, generando en un área circular de 6x6 ⬛ que inflige aturdir por 3 ⌛ a todos los que esten en el área. Explota automáticamente si es destruido. Luego de ser destruído el usuario tiene -1 ⏰ para su proxima acción o reacción.
+Al ser destruido, se transforma en un orbe que únicamente el usuario puede tocar y recoger. 
+Luego de recoger a Paliza, puede volver a usarse luego de 10 ⌛
+100 ESP","ulti, debuff, minon, 1 mano",
+Recoger de Gekko,"Recoge un orbe de ""Vértigo"", ""Carnalito"""" y ""Paliza"" al estar encima de el.
+Toma un  turno. Se puede cancelar en cualquier momento y da -1 ⏱️ a la siguiente acción.
+10 ACT",2 manos,
+,,,
+Por eso joven,"Elige obetivos en un área 5x5 para llamar su atención y ser atacado por ellos con prioridad.
+Tira INT o SAG con +5, y los objetivos compiten con INT o SAG. Si la tirada del usuario es mayor: Los objetivos son obligados a priorizar atacar al usuario por sobre los demás durante 2 ⌛.
+50 ACT",,
+No hubo heridos,"Dispara en un rango de 5 que hace 5 DMG. Tira D10:
+10-8: Realiza 5 disparos.
+7-5: Realiza 4 disparos.
+4-2: Realiza 3 disparos.
+La precisión es la misma para todos los disparos.
+100 ETK",ataque físico,
+Como un periodista desaparecido,"Prende en llamas al usuario sin herirlo. Da +5 ATK al siguiente ataque físico.
+Cada que realices un ataque tira D10: 
+10-9: Provoca ""quemadura"" al siguiente ataque físico.
+2-1: Tira de nuevo
+100 ETK",buff,
+Toque eléctrico,"Toca a un objetivo a 1 de rango con el Taser e Inflinge el estado ""parálisis"". 
+Tira una moneda:
+Cara: El estado se propaga a los enemigos adyacentes.
+100 EAC
+Necesita: Taser","debuff, contacto",
+Calmante plástico,"Cada que recibas daño tira:
+10: El DMG se reduce en 15 y empuja al atacante 1 casilla.
+9-4: El DMG se reduce en 5.
+Necesita: Escudo antidisturbios",Pasiva,
+Quítese a la verga,"Elige un objetivo en un rango de 10 y corre hacia el empujando todo lo que se encuentre en su camino. Todo aquel que sea empujado debe superar una tirada de fuerza contra la FZA del usuario +5. Si no supera la tirada es empujado a un lado y recibe 15 💔.
+El objetivo es empujado 4 casillas y recibe 40 de DMG.
+El usuario compite con FZA +5 contra la FZA o CON del objetivo. Si el usuario gana la competencia, los puntos de diferencia se suman al número de casillas, y por cada punto de diferencia se aumenta en 10 al DMG. Si la diferencia es mayor a 5, el objetivo obtiene ""Aturdido"" por 1 turno.
+100 ESS","ulti, ataque físico",
+ESS de Mini,"Recibe un medidor de Estamina Especial.
+Recibe 5 PT por turno.
+Recibe 10 PT por cada 20 DMG recibido.
+Recibe 10 PT por cada 40 DMG hecho.",,
+,,,
+Corte furtivo,"Da un corte al objetivo a 1 de rango.
+Tira D10:
+10: 40 DMG
+9-6: 30 DMG
+5-1: 10 DMG
+Si es por la espalda, la tirada se convierte en un 10.
+ETK: 100","ataque físico, corto alcance",
+Invisibilidad,"Recibe un medidor de Estamina de invisibilidad de 100.
+El usuario se hace invisible y se mantiene así mientras mantenga la estamina.
+Recupera 50 de estamina por turno y no es invisible.
+Pierde estamina mientras es invisible y camina (10 por casilla) recorrida y por turno (50).
+Puede dejar de ser invisible en cualquier momento. Cuando deja de ser invisible recibe -1 REAC. 
+100 EAC",,
+Toque venenoso,"Toca a un objetivo a 1 de rango. Usa la tirada de PRE:
++70: Inflinge ""veneno"" al objetivo.
+60 EAC","debuff, corto alcance",
+Lanzamiento de daga,"Lanza 1 daga a un objetivo a un rango de 7.
+Tira D10:
+10: 20 DMG
+9-6: 15 DMG
+5-1: 10 DMG",,
+Examinación crítica,"Tira INT o DST +5:
++10: Garantiza que el siguiente ataque sea un crítico. No podrá realizar acciones hasta 1 turno después. 
+60 EAC",buff,
+Flowering night,"Lanza 10 dagas a 5 objetivos.
+Tira D10 para el DMG de cada daga: Hace 5xTR.
+Tiene +15 🎯. 
+100 ESS",ulti,
+ESS de Proto,"Recibe un medidor de Estamina Especial.
+Recibe 5 PT por turno.
+Recibe 10 PT por cada 40 DMG recibido.
+Recibe 10 PT por cada 20 DMG hecho.",,
+Paso enemigo,"Mientras el usuario se encuentre al lado de un enemigo, obtiene 👟 3 pasos más. Al alejarse pierde esos 2 mismos pasos.",pasiva,
+,,,
+Resplandor agresivo,"Da un fuerte resplandor área de 3  de ancho. Hace 15 💔.
+Tira INT:
+10: Hace -25 DMG y da -25 PRE por una ronda.
+9-6: Hace -15 DMG.
+5-1: Hace -10 DMG.
+100 ETK","ataque mágico, debuff, área, corto alcance",
+Oración de sanación,"Elige un objetivo en un rango de 5x5 para curarlo. Tira D10:
+10 - 8: Cura 30 ♥️
+7 - 3: Cura 20 ♥️
+2 - 1: Cura 10 ♥️
+Antes de gastar la actividad, puede gastar más EAC: por cada 10 de estamina, da +1 a la tirada.
+50 EAC","cura, voz",
+Barrera,"Elige un objetivo en un área 5x5. Este recibe un escudo igual al resultado de la tirada de un 🎲 10:
+10 - 8: 30 de escudo extra por una ronda
+7 - 3: 20 de escudo extra por una ronda
+2 - 1: 10 de escudo extra por una ronda
+Antes de gastar la actividad, se puede elegir gastar más EAC: por cada 10 de EAC, da +1 a la tirada.
+50 EAC","buff, voz",
+Perdón divino,"Elige un objetivo en un área 9x9 para protegerlo. Durante una ronda, si un ataque fuera a por acabar con él, lo deja con 10 de vida. Volver a usar la habilidad sin un turno de descanso hace que el EAC a gastar aumente en 25.
+EAC: 50",buff,
+Revivir muertos,"Elige a un objetivo que haya muerto en el último turno. Revivelo y controlalo cómo un personaje más. Mientra el usuario lo controle, no puede realizar más acciones y su punto de vista cambia al del revivido.
+100 ESS",Ulti,
+ESS de Sash,"Recibe un medidor de Estamina Especial.
+Recibe 5 PT por turno.
+Recibe 10 PT por cada 40 DMG evitado por el usuario.
+Recibe 10 PT por cada 20 DMG hecho.",Estamina,
+Energía revitalizante,Una vez por turno tira un D10 antes de gastar EAC. Recupera tanta EAC como la TRx10 sin superar la EAC a usar.,Pasiva,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+Purificación personal,"Elige un objetivo en un rango de 5x5. Si va a ser alcanzado por un estado, este tira un D10:
+ 10 - 6: El estado es cancelado
+ El objetivo puede elegir gastar +10 de estamina de actividad para aumentar en 1 a la tirada.
+EAC: 50","buff, protección",
+,,,
+Paso aliado,"Mientras el usuario se encuentre al lado de un aliado, obtiene 👟 3 pasos más. Al alejarse pierde esos 3 mismos pasos.",pasiva,
+Paso comunitario,"Mientras el usuario se encuentre al lado de un objetivo, obtiene 👟 3 pasos más. Al alejarse pierde esos 3 mismos pasos.",pasiva,
+Enganche movil,"El usuario lanza un ""gancho"" a un objetivo, para luego moverlo a un número de casillas igual a su destreza o fuerza.
+Si el objetivo tiene una destreza, fuerza o constitución superior a la fuerza del usuario, ambos hacen una competencia de la característica elegida.
+Act: 60","actividad, herramienta",
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+Rendezvous,"343 Coloca una ancla de teletransporte con 10 ♥️ en un rango de 6 casillas.
+ La ancla se puede quitar y volver a colocar luego de 3 turnos. 
+ El usuario puede teletransportarse al ancla en cualquier momento.
+ Si fuera a ser alcanzado por un efecto y se teletransporta, tira un D10:
+ 5-10: Se teletransporta antes de ser alcanzado.
+ 1-4: Recibe el efecto y luego es teletransportado.
+ A la tirada se suma su reacción.
+ Luego de usarse, no se puede volver a teletransportar hasta luego de 10 turnos.
+ Si la ancla es destruida no se podrá usar hasta luego de un descanso corto.",teletransporte,
+Marca registrada,"Coloca un sensor de 10 de ♥️! en una casilla en un rango de 3 casillas.
+Cuando un enemigo visible entre en su rango de 3 casillas, lanza un rayo que crea un área 3x3 al rededor del objetivo que al tocarla hace se duplique la cantidad de pasos necesaria a pasar por ella, durando 3 turnos.
+El disparo tiene una velocidad de reacción de 6. Tiene +3 de ocultación en caso se oculte.",,
+Cazacabezas,"Equipa con +1 de velocidad de equipamiento a la ""Cazacabezas"".",,
+Tour de Force,"Equipa con +1 de velocidad de equipamiento a la ""Tour de Force"".",,
+Cable trampa,"Coloca un ficha (10♥️) que se puede pegar a las superficies en un rango de 3 casillas. Luego de una reacción, la ficha lanzará otra otra ficha en dirección contraria, con un rango de hasta 6, creando un cable de electricidad entre las dos fichas, obteniendo el cable y las fichas el estado ""camuflado"".
+Si el enemigo camina hacia una casilla adyacente al cable, podrá verlo.
+Si un enemigo toca el cable, tiene hacer una tirada de reacción para dispararle
+
+Si un enemigo toca un cable, una reacción después este recibe:
+- 5 de daño
+- 50 de precisión
+- El estado ""revelado"" por 2 turnos
+- Pierde 1 paso",,
+,,,
+Golpe,"Golpea a un objetivo aun a casilla. Tira un D10:
+10: Hace x2 ATK 💔
+2-9: Hace x1 ATK 💔
+100 ETK",,
+Arañazo,"Tira un D10:
+10: Hace x2 ATK 💔
+2-9: Hace x1 ATK 💔
+100 ETK",,
+Rebote,"Todos en un rango de 1 casilla del usuario tiran CON:
+7-4: Es empujado 2 casillas.
+3-1: Es empujado 3 casillas",,
+Disparo,"Dispara con rango de 5 casillas. Al golpear tira un D10:
+10: Hace x2 ATK 💔
+2-9: Hace x1 ATK 💔
+100 ETK",,
+Disparo en cruz,"Da 4 disparos en cruz, con rango de 5 casillas. Al golpear tira un D10:
+10: Hace x2 ATK 💔
+2-9: Hace x1 ATK 💔
+100 ETK",,
+Disparo ácido,"Dispara con rango de 5 casillas creando un charco de ácido que hace X1 ATM.
+100 ETK",,
+Vuelo 1,Vuela a 1 casilla sobre el suelo.,,
+Brinco,"Salta hacia un objetivo a 3 casillas. Tira un D10 y resta la AGI del objetivo:
+10-9: Hace x2 ATK 💔
+3-8: Hace x1 ATK 💔
+100 ETK, 30 PAS",,
+Embestida explosiva,"Corre hacia un objetivo y tira un D10:
+10-2: Explota en un área 3x3 haciendo x1 ATM. El usuario muere. Si el usuario muere por esto no deja recompensas. A la precisión suma su PAS.
+1: Esto no puede volver a utilizarse.
+100 ETK",,
+Golpe grupal de Colmena,"Golpea a un objetivo aun a casilla. Tira un D10:
+10: Hace daño equivalente a la vida restante x1.5 💔
+2-9: Hace daño equivalente a la vida restante x1 💔
+100 ETK",,
+Recuperación de Colemna,Recupera 10 HP cada 3 turnos.,,
+Enrredar de Sogast,"Salta sobre un objetivo y lo deja ""Enrredado"": No puede usar acciones con los brazos excepto ""Desenrredar"": Termina el estado ""Enrreadado"" y el turno. Si el objetivo ya tenía este estado recibe ""Enrreado II"": No puede usar acciones con los brazos y piernas.",,
+Posesión de Agarrilini Lapalini,Controla a un personaje. El objetivo ahora usa esto como un arma (Golpe) para atacar al aliado con más M. Cuando el usuario te,,
+Golpe de Agarrilini Lapalini,"Tira:
+10: Hace 80 DMG y roba 10 M.
+9-4: Hace 30 DMG y roba 3 DMG.
+El M puede ser robado de la recompensa dada en caso no tenga M.
+Si el objetivo no tiene M, no le hace daño.",,
+Golpe de Polvorant,,,
+Explosión de Polvorant,,,
+,,,
+,,,
+Rebote,Hace 10 💔.,,
+,,,
+Beber botella,"Al tener una botella de cerveza en la mano:
+Da 20 HP que dura 3 turnos. Tiene 3 usos por botella.",pasiva,
+Lanzar botella,Lanza esto al objetivo en un rango de 5. Hace 25 DMG.,,
+Seguro botella,"Si el usuario recibe una tirada de ataque de 5, la botella recibe el daño en su lugar y se rompe.",,
+Golpe con botella,"El primer golpe hace 10 DMG. Luego, el daño aumenta en 20.",,
+,,,
+Ritual de holllín,Crea un área 3x3 desde donde se uso. Los ataques hechos en esta área reciben -20 PRE.,,
+Tótem de ceniza,"Crea un totém que recibe daño en lugar del usuario. Si recibe más de 20 DMG, desaparece.",,
+Golpe de pólvora,"Hace 10 DMG. Si el objetivo después de este ataque recibe es afectado por fuego, este recibe 20 DMG extra.",,
+Aliento negro,Escupe polvo dañino creando un área 3x3 por 3 turnos que hace 10 DMG al estar en ella.,,
+,,,
+Discurso de promesas,Confunde a los enemigos en un rango de 5x5.,,
+Soborno,"Gasta 5 M y se lo da a un aliado, sus ataques aumentan en 20 DMG por 5 turnos.",,
+Desembolse,Golpea a un objetivo en un rango de 1. Tira un D10: Hace TRx5 y roba TR M del objetivo. Si el objetivo no tiene M no recibe daño. ,,
+Mano negra,"Tira un D10:
+10-9: Roba un consumible enemigo al azar y lo usa en el mismo turno.",,
+,,,
+Inversión dudosa,"Tira un D10:
+10-6: Gana 5 M. Se cura 10 HP.
+5-1: Pierde 5 M. Gana 10 DMG para sus próximos ataques.",,
+Evaporar activos,Se hace invisible por un turno hasta que realice una acción.,,
+Mini inflación,"En un rango de 5x5, el pago de M se duplica para los enemigos.",,
+Recesión,Las habilidades y objetos que requieran M no pueden usarse por 1 turno.,,
+,,,
+Disparo teledirigido,Dispara un proyectil en un rango de 12 hacia un objetivo. El disparo puede ajustar su dirección 1 casilla a los lados hacia el objetivo.,,
+Muerte mutua,"Al morir, también muere aquel que lo mató.",,
+Sello de muerte,"Al morir, deja sellado un objeto pasivo o activo del que lo matí.",,
+,,,
+Reacción de 7,"Al recibir un ataque con una tirada de 7, usa su ataque principal.",,
+Curación de 7,"Al recibir un ataque con una tirada de 7, se cura 10 HP.",,
+,,,
+,,,
+,,,
+Porrazo,"Pega a un objetivo a 1 de rango. Tira:
+10: Hace 30 DMG y da Contusión
+9-4: Hace 20 DMG.
+3-1: Hace 10 DMG y quita 30 pasos.",,
+Pistolazo,"Dispara a un enemigo en un rango de 10-2: TIra un D10:
+10: Hace 30 DMG.
+9-5: Hace 20 DMG.
+4-1: Hace 15 DMG.",,
+,,,
+Palabras desesperanzadoras,"En un rango de 5x5, las tiradas de ataque de enemigos tienen -2.",,
+Iluminación,Elige a un objetivo en un de 5. Su próxima tirada de ataque tiene +2.,,
+Látigo de castigo,"Golpea a distancia a un objetivo en un rango de 3. Tira:
+10: Hace 30 DMG.
+9-5: Hace 15 DMG.
+4-1: Hace 10 DMG.",,
+Expiación,Transfiere el daño hasta un máximo de 50 recibido en el último turno a un aliado.,,
+,,,
+Trámite,"Elige un objetivo en un rango de 3. Este tira INT:
+5: Pierde un turno",,
+Muro de documentos,Crea un muro de 3x1 en un rango de 3. El muro tiene 10 HP.,,
+Oficio duplicado,Elige un objetivo en un rango de 5 que haya sido utilizada en la última ronda. El usuario imita el movimiento.,,
+Sello fuerte,Golpea a un objetivo a 1 de rango. El objetivo no puede usar una habilidad aleatoria por 1 ronda.,,
+,,,
+Legado de los caídos,"Cuando un aliado muere, esto gana su habilidad hasta morir.",,
+,,,
+,,,
+Sigilo aereo,"Lanza a ""Manta"" al aire y salta hacia ella, escondiéndose en su interior, pudiendo moverse con ella en el aire. Puede permanecer en la Manta hasta el inicio de la siguiente ronda y salir en cualquier momento. Al salir de la Manta el usuario recibe -1 REAC.
+Al finalizar, desciende y se coloca debajo de la capa. Mientras esté dentro de la Manta tiene +95 🎯 y si es golpeada el usuario sale de ella.
+100 EAC",,
+Examinación crítica,"Tira INT o DST +5:
++10: Garantiza que el siguiente ataque sea un crítico. No podrá realizar acciones hasta 1 turno después. 
+60 EAC",,
+Apoyo pacífico,"Usa toda su ETK y recibe +100 de EAC extra por 1 turno.
+ETK: 100","buff, estamina de actividad",
+,,,
+Lanzar telaraña,"Dispara una telaraña en un rango de 5.
+Si cae al piso, crea una casilla que al moverse a través de ella cuesta el doble de EPA.
+Si dispara a alguien tiene 75 PRE, al afectado moverse le cuesta el doble de EPA, puede usar 50 EAC para quitarse la telaraña.",,
+,,,
+Evasión especial,"Al ser atacado con un rango decenas de X evade el ataque.
+Es una pasiva.",,
+,,,
+Vuelo 1,"Vuelta a una altura de 1 del suelo.
+Es una pasiva. ",,
+,,,
+Robo especial,Al recibir un golpe roba X M del atacante.,,
+,,,
+Evasión aliada de Evastone,Los aliados tienen +10 EVA. cuando un monstruo muera esto muere.,,

@@ -425,21 +425,171 @@ function wireSheetModal() {
   const close = () => modal.classList.add('hidden');
   els.sheetBtn.addEventListener('click', open);
   document.getElementById('closeSheetModal').addEventListener('click', close);
-  document.getElementById('saveSheetUrl').addEventListener('click', () => {
-    const val = document.getElementById('sheetUrlInput').value.trim();
+
+  // Helper: try to normalize common Google Sheets share/edit links to a CSV export URL
+  function normalizeSheetUrl(raw) {
+    if (!raw || typeof raw !== 'string') return raw;
+    raw = raw.trim();
+    // If it's already a CSV-like URL, return as-is
+    if (/output=csv|export\?format=csv|\.csv$/i.test(raw)) return raw;
+    // Try to extract spreadsheet id and gid from common share/edit URLs
+    const docsMatch = raw.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)(?:\/.*)?(?:[?&]gid=(\d+))?/);
+    if (docsMatch) {
+      const id = docsMatch[1];
+      const gid = docsMatch[2] || '0';
+      return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+    }
+    return raw;
+  }
+
+  document.getElementById('saveSheetUrl').addEventListener('click', async () => {
+    let val = document.getElementById('sheetUrlInput').value.trim();
     if (!val) return;
-    localStorage.setItem('sheetUrl', val);
-    close();
-  reload();
+    val = normalizeSheetUrl(val);
+    els.statusLine.textContent = 'Validating sheet URL...';
+    try {
+      const res = await fetch(val, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Sheet fetch failed ' + res.status);
+      const text = await res.text();
+      // Basic heuristic: CSV-like content should contain commas or newlines and be longer than a few chars
+      if (text.length < 10 || (text.indexOf(',') === -1 && text.indexOf('\t') === -1)) {
+        throw new Error('Fetched content does not look like CSV. If your sheet is private, publish it or make it publicly accessible.');
+      }
+      // Persist and reload
+      localStorage.setItem('sheetUrl', val);
+      close();
+      await reload();
+      toast('Sheet URL saved and loaded');
+    } catch (err) {
+      console.error('Sheet validation failed', err);
+      toast('Failed to load sheet: ' + (err.message || err));
+      els.statusLine.textContent = 'Sheet load failed: ' + (err.message || '');
+    }
   });
+
   document.getElementById('clearSheetUrl').addEventListener('click', () => {
     localStorage.removeItem('sheetUrl');
-    document.getElementById('sheetUrlInput').value='';
+    document.getElementById('sheetUrlInput').value = '';
+    els.statusLine.textContent = 'Sheet URL cleared';
   });
+
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   window.addEventListener('keydown', e=> { if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
   const modalUploadBtn = document.getElementById('modalUploadBtn');
   if (modalUploadBtn) modalUploadBtn.addEventListener('click', ()=> els.fileInput.click());
+  const importSheetToMovesBtn = document.getElementById('importSheetToMoves');
+  if (importSheetToMovesBtn) {
+    importSheetToMovesBtn.addEventListener('click', async () => {
+      try {
+        els.statusLine.textContent = 'Loading sheet for moves import…';
+        const data = await Sheet.loadSheet();
+        // Map sheet rows to moves. Heuristics: look for columns by multiple common aliases (English/Spanish)
+        const headers = data.headers.map(h=> (h||'').trim());
+        const rows = data.objects;
+        const imported = [];
+
+        // helper to find header index by aliases
+        function findHeaderIndex(aliases){
+          aliases = aliases.map(a=>a.toLowerCase());
+          for (let i=0;i<headers.length;i++){
+            const h = (headers[i]||'').toLowerCase();
+            if (aliases.includes(h)) return i;
+            // allow partial matches (e.g., contains 'nombre' or 'descr')
+            for(const a of aliases) if(a && h.includes(a)) return i;
+          }
+          return -1;
+        }
+
+        const idxName = findHeaderIndex(['name','nombre','titulo','titulo','title']);
+        const idxDesc = findHeaderIndex(['description','descripción','descripcion','desc','descripcion']);
+        const idxTags = findHeaderIndex(['tags','etiquetas','tag','labels']);
+        const idxNotes = findHeaderIndex(['notes','notas']);
+        const idxCategory = findHeaderIndex(['category','categoria','categoría']);
+        const idxDamage = findHeaderIndex(['damage','dmg','etk','daño','danio']);
+        const idxRange = findHeaderIndex(['range','rango']);
+        const idxImg = findHeaderIndex(['img','image','imagen']);
+
+        rows.forEach(r => {
+          const move = {};
+          const get = i => (i>=0 ? r[headers[i]] || r[Object.keys(r)[i]] || '' : '');
+          // Prefer object lookup by header name, fall back to positional using same index
+          const nameVal = (idxName>=0 ? (r[headers[idxName]] || r[Object.keys(r)[idxName]] ) : undefined);
+          const descVal = (idxDesc>=0 ? (r[headers[idxDesc]] || r[Object.keys(r)[idxDesc]] ) : undefined);
+          const tagsVal = (idxTags>=0 ? (r[headers[idxTags]] || r[Object.keys(r)[idxTags]] ) : undefined);
+          const notesVal = (idxNotes>=0 ? (r[headers[idxNotes]] || r[Object.keys(r)[idxNotes]] ) : undefined);
+          const catVal = (idxCategory>=0 ? (r[headers[idxCategory]] || r[Object.keys(r)[idxCategory]] ) : undefined);
+          const dmgVal = (idxDamage>=0 ? (r[headers[idxDamage]] || r[Object.keys(r)[idxDamage]] ) : undefined);
+          const rangeVal = (idxRange>=0 ? (r[headers[idxRange]] || r[Object.keys(r)[idxRange]] ) : undefined);
+          const imgVal = (idxImg>=0 ? (r[headers[idxImg]] || r[Object.keys(r)[idxImg]] ) : undefined);
+
+          if (nameVal) move.name = nameVal;
+          if (descVal) move.description = descVal;
+          if (tagsVal) move.tags = (''+tagsVal).split(/[,;]+/).map(t=>t.trim()).filter(Boolean);
+          if (notesVal) move.notes = notesVal;
+          if (catVal) move.category = catVal;
+          if (dmgVal) move.damage = dmgVal;
+          if (rangeVal) move.range = rangeVal;
+          if (imgVal) move.image = imgVal;
+          if (move.name) { move.id = uid(); imported.push(move); }
+        });
+        if (imported.length === 0) { toast('No moves found in sheet'); return; }
+        pushMovesUndo();
+        moves.push(...imported);
+        persistMoves();
+        renderMoves();
+        toast(`Imported ${imported.length} moves from sheet`);
+      } catch (err) {
+        console.error('Import sheet -> moves failed', err);
+        toast('Import failed: ' + (err.message||err));
+      }
+    });
+  }
+  const pasteCsvToMovesBtn = document.getElementById('pasteCsvToMoves');
+  if (pasteCsvToMovesBtn) {
+        pasteCsvToMovesBtn.addEventListener('click', () => {
+      try {
+        const csv = document.getElementById('sheetCsvPaste')?.value || '';
+        if (!csv.trim()) { toast('No CSV pasted'); return; }
+        // Use the project's robust CSV parser which handles quoted fields and newlines
+        const rows = parseCsv(csv);
+        if (!rows || rows.length < 2) { toast('No rows found in CSV'); return; }
+        const headers = rows[0].map(h=> (h||'').trim());
+        const dataRows = rows.slice(1);
+
+        function findIdx(aliases){
+          const a = aliases.map(x=>x.toLowerCase());
+          for(let i=0;i<headers.length;i++){ const h=headers[i].toLowerCase(); if(a.includes(h)) return i; for(const al of a) if(al && h.includes(al)) return i; }
+          return -1;
+        }
+
+        const idxName = findIdx(['name','nombre','titulo','title']);
+        const idxDesc = findIdx(['description','descripción','descripcion','desc']);
+        const idxTags = findIdx(['tags','etiquetas','tag']);
+        const idxNotes = findIdx(['notes','notas']);
+        const idxCategory = findIdx(['category','categoria','categoría']);
+        const idxDamage = findIdx(['damage','dmg','etk','daño','danio']);
+        const idxRange = findIdx(['range','rango']);
+        const idxImg = findIdx(['img','image','imagen']);
+
+        const imported = [];
+        dataRows.forEach(vals => {
+          const move = {};
+          if (idxName>=0) move.name = vals[idxName] || '';
+          if (idxDesc>=0) move.description = vals[idxDesc] || '';
+          if (idxTags>=0) move.tags = (vals[idxTags] || '').split(/[,;]+/).map(t=>t.trim()).filter(Boolean);
+          if (idxNotes>=0) move.notes = vals[idxNotes] || '';
+          if (idxCategory>=0) move.category = vals[idxCategory] || '';
+          if (idxDamage>=0) move.damage = vals[idxDamage] || '';
+          if (idxRange>=0) move.range = vals[idxRange] || '';
+          if (idxImg>=0) move.image = vals[idxImg] || '';
+          if (move.name) { move.id = uid(); imported.push(move); }
+        });
+
+        if (!imported.length) { toast('No valid moves found'); return; }
+        pushMovesUndo(); moves.push(...imported); persistMoves(); renderMoves(); toast(`Imported ${imported.length} moves from pasted CSV`);
+      } catch (err) { console.error('Paste CSV import failed', err); toast('Import failed'); }
+    });
+  }
 }
 
 // Map prototype
@@ -1942,6 +2092,14 @@ function buildCharacterSheet(){
   if (profBonusInput) profBonusInput.value = charProfile.combat.profBonus;
 }
 
+// Backwards-compatible alias used in older code paths
+function buildCharStats(){
+  try{
+    if (typeof buildCharacterSheet === 'function') buildCharacterSheet();
+    else console.warn('buildCharacterSheet is not available');
+  }catch(err){ console.error('buildCharStats wrapper error', err); }
+}
+
 function updateAbilityModifiers() {
   const abilities = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
   abilities.forEach(ability => {
@@ -2533,30 +2691,31 @@ function importMovesExcel(event) {
     reader.onload = (e) => {
       try {
         const csv = e.target.result;
-        const lines = csv.split('\n').filter(line => line.trim());
-        if (lines.length < 2) {
-          toast('No data found in file');
-          return;
-        }
-        
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const rows = parseCsv(csv);
+        if (!rows || rows.length < 2) { toast('No data found in file'); return; }
+        const headers = rows[0].map(h=> (h||'').trim());
+        const dataRows = rows.slice(1);
         const imported = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-          const move = {};
-          headers.forEach((header, index) => {
-            if (header.toLowerCase() === 'name') move.name = values[index] || '';
-            else if (header.toLowerCase() === 'description') move.description = values[index] || '';
-            else if (header.toLowerCase() === 'tags') move.tags = values[index] ? values[index].split(',').map(t => t.trim()) : [];
-            else if (header.toLowerCase() === 'notes') move.notes = values[index] || '';
-          });
-          
-          if (move.name) {
-            move.id = uid();
-            imported.push(move);
-          }
+
+        function findIdx(aliases){
+          const a = aliases.map(x=>x.toLowerCase());
+          for(let i=0;i<headers.length;i++){ const h=headers[i].toLowerCase(); if(a.includes(h)) return i; for(const al of a) if(al && h.includes(al)) return i; }
+          return -1;
         }
+
+        const idxName = findIdx(['name','nombre','titulo','title']);
+        const idxDesc = findIdx(['description','descripción','descripcion','desc']);
+        const idxTags = findIdx(['tags','etiquetas','tag']);
+        const idxNotes = findIdx(['notes','notas']);
+
+        dataRows.forEach(vals => {
+          const move = {};
+          if (idxName>=0) move.name = vals[idxName] || '';
+          if (idxDesc>=0) move.description = vals[idxDesc] || '';
+          if (idxTags>=0) move.tags = (vals[idxTags] || '').split(/[,;]+/).map(t=>t.trim()).filter(Boolean);
+          if (idxNotes>=0) move.notes = vals[idxNotes] || '';
+          if (move.name) { move.id = uid(); imported.push(move); }
+        });
         
         if (imported.length > 0) {
           pushMovesUndo();
